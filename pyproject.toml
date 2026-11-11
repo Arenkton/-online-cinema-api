@@ -19,3 +19,11 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 package-mode = false
+
+[dependency-groups]
+dev = [
+    "pytest (>=9.2.0,<10.0.0)",
+    "pytest-asyncio (>=1.4.1.post1,<2.0.0)",
+    "aiosqlite (>=0.22.1,<0.23.0)",
+    "httpx (>=0.28.1,<0.29.0)"
+]

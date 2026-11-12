@@ -1,42 +1,138 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
 
-from src.models import Movie
-from src.schemas import MovieCreate, MovieRead
 from src.database import get_db
+from src import crud
+from src.schemas import MovieCreate, MovieRead, MovieUpdate
 
-router = APIRouter()
+
+router = APIRouter(
+    prefix="/movies",
+    tags=["Movies"]
+)
 
 
-@router.get("/movies/{movie_id}", response_model=MovieRead)
+@router.post(
+    "/",
+    response_model=MovieRead,
+    status_code=status.HTTP_201_CREATED
+)
+async def create_movie(
+    movie: MovieCreate,
+    db: AsyncSession = Depends(get_db)
+):
+    try:
+        return await crud.create_movie(db, movie)
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Movie violates database constraints"
+        )
+
+
+@router.get(
+    "/",
+    response_model=list[MovieRead]
+)
+async def get_movies(
+    db: AsyncSession = Depends(get_db)
+):
+    return await crud.get_movies(db)
+
+
+@router.get(
+    "/{movie_id}",
+    response_model=MovieRead
+)
 async def get_movie(
     movie_id: int,
     db: AsyncSession = Depends(get_db)
 ):
-    result = await db.execute(
-        select(Movie).where(Movie.id == movie_id)
-    )
-    movie = result.scalar_one_or_none()
+    movie = await crud.get_movie(db, movie_id)
 
-    if not movie:
+    if movie is None:
         raise HTTPException(
-            status_code=404,
+            status_code=status.HTTP_404_NOT_FOUND,
             detail="Movie not found"
         )
 
     return movie
 
 
-@router.post("/movies/", response_model=MovieRead, status_code=201)
-async def create_movie(
-    movie: MovieCreate,
+@router.patch(
+    "/{movie_id}",
+    response_model=MovieRead
+)
+async def update_movie(
+    movie_id: int,
+    movie: MovieUpdate,
     db: AsyncSession = Depends(get_db)
 ):
-    new_movie = Movie(**movie.model_dump())
+    required_fields = {
+        "name",
+        "year",
+        "time",
+        "imdb",
+        "votes",
+        "description",
+        "price",
+        "certification_id",
+    }
 
-    db.add(new_movie)
-    await db.commit()
-    await db.refresh(new_movie)
+    update_data = movie.model_dump(exclude_unset=True)
 
-    return new_movie
+    if any(
+            field in required_fields and value is None
+            for field, value in update_data.items()
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Required movie fields cannot be null"
+        )
+
+    try:
+        updated_movie = await crud.update_movie(
+            db, movie_id, movie
+        )
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Movie with this name already exists"
+        )
+
+    if updated_movie is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Movie not found"
+        )
+
+    return updated_movie
+
+
+@router.delete(
+    "/{movie_id}",
+    status_code=status.HTTP_204_NO_CONTENT
+)
+async def delete_movie(
+    movie_id: int,
+    db: AsyncSession = Depends(get_db)
+):
+    try:
+        deleted_movie = await crud.delete_movie(
+            db, movie_id
+        )
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Movie cannot be deleted due to related records"
+        )
+
+    if deleted_movie is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Movie not found"
+        )

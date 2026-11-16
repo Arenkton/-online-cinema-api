@@ -30,6 +30,12 @@ async def create_movie(
             status_code=status.HTTP_409_CONFLICT,
             detail="Movie violates database constraints"
         )
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc)
+        )
 
 
 @router.get(

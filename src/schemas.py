@@ -1,4 +1,3 @@
-
 from decimal import Decimal
 from uuid import UUID
 
@@ -24,12 +23,18 @@ class MovieBase(BaseModel):
 
 
 class MovieCreate(MovieBase):
-    pass
+    genre_ids: list[int] = Field(default_factory=list)
+    star_ids: list[int] = Field(default_factory=list)
+    director_ids: list[int] = Field(default_factory=list)
 
 
 class MovieRead(MovieBase):
     id: int
     uuid: UUID
+
+    genres: list[GenreResponse] = Field(default_factory=list)
+    stars: list[StarResponse] = Field(default_factory=list)
+    directors: list[DirectorResponse] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
 

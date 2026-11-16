@@ -1,8 +1,9 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import selectinload
 
-from src.models import Movie, Genre, Certification
+from src.models import Movie, Genre, Certification, Star, Director
 from src.schemas import (
     MovieCreate,
     MovieUpdate,
@@ -20,13 +21,69 @@ async def create_movie(
     db: AsyncSession,
     movie: MovieCreate
 ) -> Movie:
-    new_movie = Movie(**movie.model_dump())
+    movie_data = movie.model_dump(
+        exclude={
+            "genre_ids",
+            "star_ids",
+            "director_ids"
+        }
+    )
+
+    new_movie = Movie(**movie_data)
+
+    result = await db.execute(
+        select(Genre).where(
+            Genre.id.in_(movie.genre_ids)
+        )
+    )
+
+    genres = result.scalars().all()
+
+    if {genre.id for genre in genres} != set(movie.genre_ids):
+        raise ValueError("Some genres do not exist")
+
+    new_movie.genres = genres
+
+    result = await db.execute(
+        select(Star).where(
+            Star.id.in_(movie.star_ids)
+        )
+    )
+
+    stars = result.scalars().all()
+
+    if {star.id for star in stars} != set(movie.star_ids):
+        raise ValueError("Some stars do not exist")
+
+    new_movie.stars = stars
+
+    result = await db.execute(
+        select(Director).where(
+            Director.id.in_(movie.director_ids)
+        )
+    )
+
+    directors = result.scalars().all()
+
+    if {director.id for director in directors} != set(movie.director_ids):
+        raise ValueError("Some directors do not exist")
+
+    new_movie.directors = directors
 
     db.add(new_movie)
     await db.commit()
-    await db.refresh(new_movie)
 
-    return new_movie
+    result = await db.execute(
+        select(Movie)
+        .options(
+            selectinload(Movie.genres),
+            selectinload(Movie.stars),
+            selectinload(Movie.directors)
+        )
+        .where(Movie.id == new_movie.id)
+    )
+
+    return result.scalar_one()
 
 
 async def get_movie(
@@ -34,7 +91,13 @@ async def get_movie(
     movie_id: int
 ) -> Movie | None:
     result = await db.execute(
-        select(Movie).where(Movie.id == movie_id)
+        select(Movie)
+        .options(
+            selectinload(Movie.genres),
+            selectinload(Movie.stars),
+            selectinload(Movie.directors)
+        )
+        .where(Movie.id == movie_id)
     )
 
     return result.scalar_one_or_none()

@@ -2,7 +2,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from src.models import Movie, Genre, Certification
+from src.models import (
+    Movie,
+    Genre,
+    Star,
+    Director,
+    Certification,
+)
 from src.schemas import (
     MovieCreate,
     MovieUpdate,

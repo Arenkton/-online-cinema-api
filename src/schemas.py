@@ -52,6 +52,9 @@ class MovieUpdate(BaseModel):
     certification_id: int | None = None
     meta_score: float | None = None
     gross: float | None = None
+    genre_ids: list[int] = Field(default_factory=list)
+    star_ids: list[int] = Field(default_factory=list)
+    director_ids: list[int] = Field(default_factory=list)
 
 
 # ==================== USERS ====================

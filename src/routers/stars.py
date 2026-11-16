@@ -49,19 +49,19 @@ async def get_star(
     star_id: int,
     db: AsyncSession = Depends(get_db)
 ):
-    star = await crud.get_genre(db, star_id)
+    star = await crud.get_star(db, star_id)
 
     if star is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Genre not found"
+            detail="Star not found"
         )
 
     return star
 
 
 @router.patch(
-    "/{genre_id}",
+    "/{star_id}",
     response_model=StarResponse
 )
 async def update_star(
@@ -72,7 +72,7 @@ async def update_star(
     if "name" in star.model_fields_set and star.name is None:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Genre name cannot be null"
+            detail="Star name cannot be null"
         )
 
     try:

@@ -71,6 +71,11 @@ async def create_movie(
     new_movie.directors = directors
 
     db.add(new_movie)
+
+    new_movie.genres = genres
+    new_movie.stars = stars
+    new_movie.directors = directors
+
     await db.commit()
 
     result = await db.execute(

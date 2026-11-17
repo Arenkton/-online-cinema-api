@@ -1,4 +1,3 @@
-
 from decimal import Decimal
 from uuid import UUID
 
@@ -24,12 +23,18 @@ class MovieBase(BaseModel):
 
 
 class MovieCreate(MovieBase):
-    pass
+    genre_ids: list[int] = Field(default_factory=list)
+    star_ids: list[int] = Field(default_factory=list)
+    director_ids: list[int] = Field(default_factory=list)
 
 
 class MovieRead(MovieBase):
     id: int
     uuid: UUID
+
+    genres: list[GenreResponse] = Field(default_factory=list)
+    stars: list[StarResponse] = Field(default_factory=list)
+    directors: list[DirectorResponse] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -47,6 +52,9 @@ class MovieUpdate(BaseModel):
     certification_id: int | None = None
     meta_score: float | None = None
     gross: float | None = None
+    genre_ids: list[int] = Field(default_factory=list)
+    star_ids: list[int] = Field(default_factory=list)
+    director_ids: list[int] = Field(default_factory=list)
 
 
 # ==================== USERS ====================

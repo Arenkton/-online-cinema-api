@@ -145,6 +145,11 @@ async def test_movie_relationships_load(db_session):
     ])
     await db_session.commit()
 
+    db_session.expire(
+        movie,
+        ["genres", "stars", "directors"]
+    )
+
     result = await db_session.execute(
         select(Movie)
         .options(

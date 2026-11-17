@@ -1,14 +1,9 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import selectinload
 
-from src.models import (
-    Movie,
-    Genre,
-    Star,
-    Director,
-    Certification,
-)
+from src.models import Movie, Genre, Certification, Star, Director
 from src.schemas import (
     MovieCreate,
     MovieUpdate,
@@ -26,13 +21,74 @@ async def create_movie(
     db: AsyncSession,
     movie: MovieCreate
 ) -> Movie:
-    new_movie = Movie(**movie.model_dump())
+    movie_data = movie.model_dump(
+        exclude={
+            "genre_ids",
+            "star_ids",
+            "director_ids"
+        }
+    )
+
+    new_movie = Movie(**movie_data)
+
+    result = await db.execute(
+        select(Genre).where(
+            Genre.id.in_(movie.genre_ids)
+        )
+    )
+
+    genres = result.scalars().all()
+
+    if {genre.id for genre in genres} != set(movie.genre_ids):
+        raise ValueError("Some genres do not exist")
+
+    new_movie.genres = genres
+
+    result = await db.execute(
+        select(Star).where(
+            Star.id.in_(movie.star_ids)
+        )
+    )
+
+    stars = result.scalars().all()
+
+    if {star.id for star in stars} != set(movie.star_ids):
+        raise ValueError("Some stars do not exist")
+
+    new_movie.stars = stars
+
+    result = await db.execute(
+        select(Director).where(
+            Director.id.in_(movie.director_ids)
+        )
+    )
+
+    directors = result.scalars().all()
+
+    if {director.id for director in directors} != set(movie.director_ids):
+        raise ValueError("Some directors do not exist")
+
+    new_movie.directors = directors
 
     db.add(new_movie)
-    await db.commit()
-    await db.refresh(new_movie)
 
-    return new_movie
+    new_movie.genres = genres
+    new_movie.stars = stars
+    new_movie.directors = directors
+
+    await db.commit()
+
+    result = await db.execute(
+        select(Movie)
+        .options(
+            selectinload(Movie.genres),
+            selectinload(Movie.stars),
+            selectinload(Movie.directors)
+        )
+        .where(Movie.id == new_movie.id)
+    )
+
+    return result.scalar_one()
 
 
 async def get_movie(
@@ -40,18 +96,28 @@ async def get_movie(
     movie_id: int
 ) -> Movie | None:
     result = await db.execute(
-        select(Movie).where(Movie.id == movie_id)
+        select(Movie)
+        .options(
+            selectinload(Movie.genres),
+            selectinload(Movie.stars),
+            selectinload(Movie.directors)
+        )
+        .where(Movie.id == movie_id)
     )
 
     return result.scalar_one_or_none()
 
 
-async def get_movies(
-    db: AsyncSession
-) -> list[Movie]:
-    result = await db.execute(select(Movie))
+async def get_movies(db: AsyncSession) -> list[Movie]:
+    result = await db.execute(
+        select(Movie).options(
+            selectinload(Movie.genres),
+            selectinload(Movie.stars),
+            selectinload(Movie.directors)
+        )
+    )
 
-    return result.scalars().all()
+    return list(result.scalars().all())
 
 
 async def update_movie(
@@ -66,13 +132,57 @@ async def update_movie(
 
     update_data = movie.model_dump(exclude_unset=True)
 
+    genre_ids = update_data.pop("genre_ids", None)
+    star_ids = update_data.pop("star_ids", None)
+    director_ids = update_data.pop("director_ids", None)
+
     for field, value in update_data.items():
         setattr(db_movie, field, value)
 
-    await db.commit()
-    await db.refresh(db_movie)
+    if genre_ids is not None:
+        result = await db.execute(
+            select(Genre).where(
+                Genre.id.in_(genre_ids)
+            )
+        )
 
-    return db_movie
+        genres = result.scalars().all()
+
+        if {genre.id for genre in genres} != set(genre_ids):
+            raise ValueError("Some genres do not exist")
+
+        db_movie.genres = genres
+
+    if star_ids is not None:
+        result = await db.execute(
+            select(Star).where(
+                Star.id.in_(star_ids)
+            )
+        )
+
+        stars = result.scalars().all()
+
+        if {star.id for star in stars} != set(star_ids):
+            raise ValueError("Some stars do not exist")
+
+        db_movie.stars = stars
+
+    if director_ids is not None:
+        result = await db.execute(
+            select(Director).where(
+                Director.id.in_(director_ids)
+            )
+        )
+
+        directors = result.scalars().all()
+
+        if {director.id for director in directors} != set(director_ids):
+            raise ValueError("Some directors do not exist")
+
+        db_movie.directors = directors
+
+    await db.commit()
+    return await get_movie(db, movie_id)
 
 
 async def delete_movie(

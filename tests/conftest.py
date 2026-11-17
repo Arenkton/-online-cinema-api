@@ -9,6 +9,11 @@ from sqlalchemy.pool import StaticPool
 
 from src.models import Base
 
+from httpx import ASGITransport, AsyncClient
+
+from src.database import get_db
+from src.main import app
+
 
 @pytest_asyncio.fixture
 async def db_session():
@@ -31,3 +36,20 @@ async def db_session():
             yield session
     finally:
         await engine.dispose()
+
+
+@pytest_asyncio.fixture
+async def api_client(db_session):
+    """Use the test database instead of the local application database."""
+    async def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(
+            transport=transport, base_url="http://testserver"
+        ) as client:
+            yield client
+    finally:
+        app.dependency_overrides.pop(get_db, None)

@@ -3,7 +3,7 @@ import secrets
 
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -36,7 +36,10 @@ from src.schemas import (
 )
 
 from src.security import hash_password
-from src.jwt_service import decode_jwt_token
+from src.jwt_service import (
+    create_jwt_token,
+    decode_jwt_token,
+)
 
 
 async def create_movie(
@@ -728,3 +731,88 @@ async def save_refresh_token(
     except Exception:
         await db.rollback()
         raise
+
+
+async def rotate_refresh_token(
+    db: AsyncSession,
+    raw_token: str,
+) -> tuple[str, str] | None:
+    payload = decode_jwt_token(
+        raw_token,
+        expected_type="refresh",
+    )
+
+    try:
+        user_id = int(payload["sub"])
+    except (ValueError, TypeError):
+        return None
+
+    if user_id <= 0 or str(user_id) != payload["sub"]:
+        return None
+
+    user = await db.get(User, user_id)
+
+    if user is None or not user.is_active:
+        return None
+
+    old_token_hash = hashlib.sha256(
+        raw_token.encode("utf-8")
+    ).hexdigest()
+
+    new_access = create_jwt_token(
+        user_id=user_id,
+        token_type="access",
+    )
+
+    new_refresh = create_jwt_token(
+        user_id=user_id,
+        token_type="refresh",
+    )
+
+    new_refresh_hash = hashlib.sha256(
+        new_refresh.encode("utf-8")
+    ).hexdigest()
+
+    new_payload = decode_jwt_token(
+        new_refresh,
+        expected_type="refresh",
+    )
+
+    expires_at = datetime.fromtimestamp(
+        new_payload["exp"],
+        tz=timezone.utc,
+    )
+
+    try:
+        result = await db.execute(
+            delete(RefreshToken)
+            .where(
+                RefreshToken.user_id == user_id,
+                RefreshToken.token == old_token_hash,
+                RefreshToken.expires_at
+                > datetime.now(timezone.utc),
+            )
+            .returning(RefreshToken.id)
+        )
+
+        deleted_token_id = result.scalar_one_or_none()
+
+        if deleted_token_id is None:
+            await db.rollback()
+            return None
+
+        db.add(
+            RefreshToken(
+                user_id=user_id,
+                token=new_refresh_hash,
+                expires_at=expires_at,
+            )
+        )
+
+        await db.commit()
+
+    except Exception:
+        await db.rollback()
+        raise
+
+    return new_access, new_refresh

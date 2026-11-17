@@ -1,3 +1,5 @@
+import jwt
+
 from fastapi import (
     APIRouter,
     BackgroundTasks,
@@ -15,6 +17,7 @@ from src.crud import(
     activate_user,
     resend_activation_token,
     save_refresh_token,
+    rotate_refresh_token,
 )
 from src.database import get_db
 from src.email_service import send_activation_email
@@ -24,6 +27,7 @@ from src.schemas import(
     UserBase,
     UserLogin,
     TokenPair,
+    RefreshTokenRequest
 )
 from src.jwt_service import create_jwt_token
 from src.security import verify_password
@@ -236,3 +240,43 @@ async def get_my_profile(
     current_user: User = Depends(get_current_user),
 ):
     return current_user
+
+
+@router.post(
+    "/refresh",
+    response_model=TokenPair,
+    status_code=status.HTTP_200_OK,
+    summary="Refresh authentication tokens",
+    description=(
+        "Validates a refresh token, revokes it, "
+        "and returns a new access/refresh token pair."
+    ),
+)
+async def refresh_tokens(
+    data: RefreshTokenRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        tokens = await rotate_refresh_token(
+            db=db,
+            raw_token=data.refresh_token,
+        )
+
+    except jwt.InvalidTokenError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token",
+        ) from exc
+
+    if tokens is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token",
+        )
+
+    access_token, refresh_token = tokens
+
+    return TokenPair(
+        access_token=access_token,
+        refresh_token=refresh_token,
+    )

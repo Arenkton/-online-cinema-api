@@ -580,3 +580,50 @@ async def create_user(
         raise
 
     return new_user, raw_token
+
+
+async def activate_user(
+    db: AsyncSession,
+    raw_token: str,
+) -> bool:
+    token_hash = hashlib.sha256(
+        raw_token.encode("utf-8")
+    ).hexdigest()
+
+    result = await db.execute(
+        select(ActivationToken, User)
+        .join(
+            User,
+            ActivationToken.user_id == User.id,
+        )
+        .where(ActivationToken.token == token_hash)
+    )
+
+    record = result.one_or_none()
+
+    if record is None:
+        return False
+
+    activation_token, user = record
+
+    expires_at = activation_token.expires_at
+
+    # SQLite may return a naive datetime.
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(
+            tzinfo=timezone.utc
+        )
+
+    if expires_at <= datetime.now(timezone.utc):
+        return False
+
+    user.is_active = True
+
+    try:
+        await db.delete(activation_token)
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise
+
+    return True

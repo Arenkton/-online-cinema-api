@@ -4,11 +4,16 @@ from fastapi import (
     Depends,
     HTTPException,
     status,
+    Query,
 )
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.crud import create_user, get_user_by_email
+from src.crud import(
+    create_user,
+    get_user_by_email,
+    activate_user,
+)
 from src.database import get_db
 from src.email_service import send_activation_email
 from src.schemas import UserCreate, UserRead
@@ -75,3 +80,36 @@ async def register_user(
     )
 
     return new_user
+
+
+@router.get(
+    "/activate",
+    status_code=status.HTTP_200_OK,
+    summary="Activate user account",
+    description=(
+        "Activates a user account using a valid "
+        "one-time token from the activation email."
+    ),
+)
+async def activate_account(
+    token: str = Query(
+        ...,
+        min_length=1,
+        max_length=256,
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    activated = await activate_user(
+        db=db,
+        raw_token=token,
+    )
+
+    if not activated:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired activation token",
+        )
+
+    return {
+        "message": "Account activated successfully"
+    }

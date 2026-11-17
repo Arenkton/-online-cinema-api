@@ -14,11 +14,19 @@ from src.crud import(
     get_user_by_email,
     activate_user,
     resend_activation_token,
+    save_refresh_token,
 )
 from src.database import get_db
 from src.email_service import send_activation_email
-from src.schemas import UserCreate, UserRead, UserBase
-
+from src.schemas import(
+    UserCreate,
+    UserRead,
+    UserBase,
+    UserLogin,
+    TokenPair,
+)
+from src.jwt_service import create_jwt_token
+from src.security import verify_password
 
 router = APIRouter(
     prefix="/auth",
@@ -151,3 +159,62 @@ async def resend_activation(
             "account, an activation email may be sent."
         )
     }
+
+
+@router.post(
+    "/login",
+    response_model=TokenPair,
+    status_code=status.HTTP_200_OK,
+    summary="Login user",
+    description=(
+        "Authenticates an active user and returns "
+        "access and refresh JWT tokens."
+    ),
+)
+async def login_user(
+    credentials: UserLogin,
+    db: AsyncSession = Depends(get_db),
+):
+    user = await get_user_by_email(
+        db,
+        credentials.email.strip().lower(),
+    )
+
+    if (
+        user is None
+        or not verify_password(
+            credentials.password,
+            user.hashed_password,
+        )
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid email or password",
+        )
+
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account is not activated",
+        )
+
+    access_token = create_jwt_token(
+        user_id=user.id,
+        token_type="access",
+    )
+
+    refresh_token = create_jwt_token(
+        user_id=user.id,
+        token_type="refresh",
+    )
+
+    await save_refresh_token(
+        db=db,
+        user_id=user.id,
+        raw_token=refresh_token,
+    )
+
+    return TokenPair(
+        access_token=access_token,
+        refresh_token=refresh_token,
+    )

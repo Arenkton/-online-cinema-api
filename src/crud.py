@@ -18,6 +18,7 @@ from src.models import (
     UserGroup,
     UserGroupEnum,
     ActivationToken,
+    RefreshToken,
 )
 
 from src.schemas import (
@@ -35,6 +36,7 @@ from src.schemas import (
 )
 
 from src.security import hash_password
+from src.jwt_service import decode_jwt_token
 
 
 async def create_movie(
@@ -693,3 +695,36 @@ async def resend_activation_token(
 
     return user.email, raw_token
 
+
+async def save_refresh_token(
+    db: AsyncSession,
+    user_id: int,
+    raw_token: str,
+) -> None:
+    payload = decode_jwt_token(
+        raw_token,
+        expected_type="refresh",
+    )
+
+    token_hash = hashlib.sha256(
+        raw_token.encode("utf-8")
+    ).hexdigest()
+
+    expires_at = datetime.fromtimestamp(
+        payload["exp"],
+        tz=timezone.utc,
+    )
+
+    refresh_token = RefreshToken(
+        user_id=user_id,
+        token=token_hash,
+        expires_at=expires_at,
+    )
+
+    db.add(refresh_token)
+
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise

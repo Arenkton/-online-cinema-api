@@ -2,6 +2,7 @@ import re
 
 from decimal import Decimal
 from uuid import UUID
+from typing import Literal
 
 from pydantic import (
     BaseModel,
@@ -167,3 +168,14 @@ class DirectorResponse(DirectorCreate):
     id: int
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class TokenPair(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: Literal["bearer"] = "bearer"

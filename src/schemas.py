@@ -1,8 +1,15 @@
+import re
+
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
-
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    field_validator,
+)
 
 # ==================== MOVIES ====================
 
@@ -66,12 +73,29 @@ class UserBase(BaseModel):
 class UserCreate(UserBase):
     password: str = Field(min_length=8)
 
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, value: str) -> str:
+        if not re.search(r"[A-Z]", value):
+            raise ValueError("Password must contain an uppercase letter")
+
+        if not re.search(r"[a-z]", value):
+            raise ValueError("Password must contain a lowercase letter")
+
+        if not re.search(r"\d", value):
+            raise ValueError("Password must contain a digit")
+
+        if not re.search(r"[^A-Za-z0-9]", value):
+            raise ValueError("Password must contain a special character")
+
+        return value
+
 
 class UserRead(UserBase):
     id: int
+    is_active: bool
 
     model_config = ConfigDict(from_attributes=True)
-
 
 # ==================== CERTIFICATIONS ====================
 

@@ -1,9 +1,25 @@
-from sqlalchemy.ext.asyncio import AsyncSession
+import hashlib
+import secrets
+
+from datetime import datetime, timedelta, timezone
+
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from src.models import Movie, Genre, Certification, Star, Director
+from src.models import (
+    Movie,
+    Genre,
+    Certification,
+    Star,
+    Director,
+    User,
+    UserGroup,
+    UserGroupEnum,
+    ActivationToken,
+)
+
 from src.schemas import (
     MovieCreate,
     MovieUpdate,
@@ -15,7 +31,11 @@ from src.schemas import (
     StarUpdate,
     DirectorCreate,
     DirectorUpdate,
+    UserCreate,
 )
+
+from src.security import hash_password
+
 
 async def create_movie(
     db: AsyncSession,
@@ -490,3 +510,73 @@ async def delete_director(
         raise
 
     return db_director
+
+
+async def get_user_by_email(
+    db: AsyncSession,
+    email: str
+) -> User | None:
+    result = await db.execute(
+        select(User).where(User.email == email)
+    )
+
+    return result.scalar_one_or_none()
+
+
+async def create_user(
+    db: AsyncSession,
+    user: UserCreate
+) -> tuple[User, str]:
+    email = user.email.strip().lower()
+
+    existing_user = await get_user_by_email(db, email)
+
+    if existing_user is not None:
+        raise ValueError("Email already registered")
+
+    result = await db.execute(
+        select(UserGroup).where(
+            UserGroup.name == UserGroupEnum.USER.value
+        )
+    )
+
+    user_group = result.scalar_one_or_none()
+
+    if user_group is None:
+        raise ValueError("Default user group not found")
+
+    raw_token = secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(
+        raw_token.encode("utf-8")
+    ).hexdigest()
+
+    new_user = User(
+        email=email,
+        hashed_password=hash_password(user.password),
+        is_active=False,
+        group_id=user_group.id
+    )
+
+    try:
+        db.add(new_user)
+        await db.flush()
+
+        activation_token = ActivationToken(
+            user_id=new_user.id,
+            token=token_hash,
+            expires_at=(
+                datetime.now(timezone.utc)
+                + timedelta(hours=24)
+            )
+        )
+
+        db.add(activation_token)
+
+        await db.commit()
+        await db.refresh(new_user)
+
+    except Exception:
+        await db.rollback()
+        raise
+
+    return new_user, raw_token

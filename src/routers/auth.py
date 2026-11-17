@@ -27,6 +27,8 @@ from src.schemas import(
 )
 from src.jwt_service import create_jwt_token
 from src.security import verify_password
+from src.auth_dependencies import get_current_user
+from src.models import User
 
 router = APIRouter(
     prefix="/auth",
@@ -218,3 +220,19 @@ async def login_user(
         access_token=access_token,
         refresh_token=refresh_token,
     )
+
+
+@router.get(
+    "/me",
+    response_model=UserRead,
+    status_code=status.HTTP_200_OK,
+    summary="Get current user",
+    description=(
+        "Returns information about the currently "
+        "authenticated user. Requires an access token."
+    ),
+)
+async def get_my_profile(
+    current_user: User = Depends(get_current_user),
+):
+    return current_user

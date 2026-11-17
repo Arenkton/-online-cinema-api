@@ -5,7 +5,8 @@ from src.routers import (
     certifications,
     genres,
     stars,
-    directors
+    directors,
+    auth
 )
 
 app = FastAPI()
@@ -21,3 +22,5 @@ app.include_router(genres.router)
 app.include_router(stars.router)
 
 app.include_router(directors.router)
+
+app.include_router(auth.router)

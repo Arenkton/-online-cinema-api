@@ -627,3 +627,69 @@ async def activate_user(
         raise
 
     return True
+
+
+async def resend_activation_token(
+    db: AsyncSession,
+    email: str,
+) -> tuple[str, str] | None:
+    user = await get_user_by_email(
+        db,
+        email.strip().lower(),
+    )
+
+    if user is None or user.is_active:
+        return None
+
+    result = await db.execute(
+        select(ActivationToken).where(
+            ActivationToken.user_id == user.id
+        )
+    )
+
+    activation = result.scalar_one_or_none()
+    now = datetime.now(timezone.utc)
+
+    if activation is not None:
+        expires_at = activation.expires_at
+
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(
+                tzinfo=timezone.utc
+            )
+
+        # Tokens are valid for 24 hours.
+        # Allow a new token after a 5-minute cooldown.
+        if expires_at > now + timedelta(
+            hours=23,
+            minutes=55,
+        ):
+            return None
+
+    raw_token = secrets.token_urlsafe(32)
+
+    token_hash = hashlib.sha256(
+        raw_token.encode("utf-8")
+    ).hexdigest()
+
+    new_expiration = now + timedelta(hours=24)
+
+    if activation is None:
+        activation = ActivationToken(
+            user_id=user.id,
+            token=token_hash,
+            expires_at=new_expiration,
+        )
+        db.add(activation)
+    else:
+        activation.token = token_hash
+        activation.expires_at = new_expiration
+
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise
+
+    return user.email, raw_token
+

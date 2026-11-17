@@ -13,10 +13,11 @@ from src.crud import(
     create_user,
     get_user_by_email,
     activate_user,
+    resend_activation_token,
 )
 from src.database import get_db
 from src.email_service import send_activation_email
-from src.schemas import UserCreate, UserRead
+from src.schemas import UserCreate, UserRead, UserBase
 
 
 router = APIRouter(
@@ -112,4 +113,41 @@ async def activate_account(
 
     return {
         "message": "Account activated successfully"
+    }
+
+
+@router.post(
+    "/resend-activation",
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Resend account activation email",
+    description=(
+        "Requests a new activation email for an "
+        "inactive account. Requests are limited "
+        "to one every 5 minutes."
+    ),
+)
+async def resend_activation(
+    data: UserBase,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+):
+    result = await resend_activation_token(
+        db=db,
+        email=data.email,
+    )
+
+    if result is not None:
+        email, raw_token = result
+
+        background_tasks.add_task(
+            send_activation_email,
+            email,
+            raw_token,
+        )
+
+    return {
+        "message": (
+            "If this email belongs to an inactive "
+            "account, an activation email may be sent."
+        )
     }

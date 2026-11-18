@@ -196,3 +196,16 @@ class CartItemRead(BaseModel):
     id: int
     movie_id: int
     added_at: datetime
+
+
+class CartMovieRead(BaseModel):
+    id: int
+    movie_id: int
+    name: str
+    price: Decimal
+    added_at: datetime
+
+
+class CartRead(BaseModel):
+    items: list[CartMovieRead]
+    total_price: Decimal

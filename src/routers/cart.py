@@ -1,12 +1,18 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from decimal import Decimal
 
 from src.auth_dependencies import get_current_user
-from src.crud import add_movie_to_cart
+from src.crud import add_movie_to_cart, get_cart_items
 from src.database import get_db
 from src.models import Movie, User
-from src.schemas import CartItemCreate, CartItemRead
+from src.schemas import(
+    CartItemCreate,
+    CartItemRead,
+    CartRead,
+    CartMovieRead,
+)
 
 
 router = APIRouter(
@@ -53,3 +59,44 @@ async def create_cart_item(
         )
 
     return item
+
+
+@router.get(
+    "",
+    response_model=CartRead,
+    status_code=status.HTTP_200_OK,
+    summary="Get shopping cart",
+    description=(
+        "Returns the authenticated user's cart "
+        "with movie details and total price."
+    ),
+)
+async def get_cart(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    cart_items = await get_cart_items(
+        db=db,
+        user_id=current_user.id,
+    )
+
+    items = [
+        CartMovieRead(
+            id=item.id,
+            movie_id=item.movie_id,
+            name=item.movie.name,
+            price=item.movie.price,
+            added_at=item.added_at,
+        )
+        for item in cart_items
+    ]
+
+    total_price = sum(
+        (item.price for item in items),
+        Decimal("0.00"),
+    )
+
+    return CartRead(
+        items=items,
+        total_price=total_price,
+    )

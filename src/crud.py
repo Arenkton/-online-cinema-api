@@ -909,3 +909,23 @@ async def add_movie_to_cart(
 
     await db.refresh(item)
     return item
+
+
+async def get_cart_items(
+    db: AsyncSession,
+    user_id: int,
+) -> list[CartItem]:
+    result = await db.execute(
+        select(CartItem)
+        .join(Cart, CartItem.cart_id == Cart.id)
+        .options(
+            selectinload(CartItem.movie)
+        )
+        .where(Cart.user_id == user_id)
+        .order_by(
+            CartItem.added_at,
+            CartItem.id,
+        )
+    )
+
+    return list(result.scalars().all())

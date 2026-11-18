@@ -1032,3 +1032,37 @@ async def create_order_from_cart(
     )
 
     return result.scalar_one()
+
+
+async def get_user_orders(
+    db: AsyncSession,
+    user_id: int,
+) -> list[Order]:
+    result = await db.execute(
+        select(Order)
+        .options(selectinload(Order.items))
+        .where(Order.user_id == user_id)
+        .order_by(
+            Order.created_at.desc(),
+            Order.id.desc(),
+        )
+    )
+
+    return list(result.scalars().all())
+
+
+async def get_user_order(
+    db: AsyncSession,
+    user_id: int,
+    order_id: int,
+) -> Order | None:
+    result = await db.execute(
+        select(Order)
+        .options(selectinload(Order.items))
+        .where(
+            Order.id == order_id,
+            Order.user_id == user_id,
+        )
+    )
+
+    return result.scalar_one_or_none()

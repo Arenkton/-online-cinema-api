@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+
 from src.routers import (
     users,
     movies,
@@ -6,9 +7,9 @@ from src.routers import (
     genres,
     stars,
     directors,
-    auth
+    auth,
+    cart,
 )
-
 app = FastAPI()
 
 
@@ -24,3 +25,5 @@ app.include_router(stars.router)
 app.include_router(directors.router)
 
 app.include_router(auth.router)
+
+app.include_router(cart.router)

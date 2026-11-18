@@ -228,3 +228,28 @@ class OrderRead(BaseModel):
     status: str
     total_amount: Decimal
     items: list[OrderItemRead]
+
+
+class PaymentCreate(BaseModel):
+    order_id: int = Field(gt=0)
+
+
+class PaymentItemRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    order_item_id: int
+    price_at_payment: Decimal
+
+
+class PaymentRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    user_id: int
+    order_id: int
+    created_at: datetime
+    status: str
+    amount: Decimal
+    external_payment_id: str | None
+    items: list[PaymentItemRead]

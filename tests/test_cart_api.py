@@ -1341,3 +1341,87 @@ async def test_cancel_order_without_auth(
 
     await db_session.refresh(order)
     assert order.status == "pending"
+
+
+@pytest.mark.asyncio
+async def test_canceled_order_cannot_create_payment(
+    api_client,
+    db_session,
+    cart_data,
+):
+    user_id, movie_id = cart_data
+    headers = auth_headers(user_id)
+
+    order = await create_test_order(
+        db_session,
+        user_id=user_id,
+        movie_id=movie_id,
+        order_status="pending",
+    )
+
+    cancel_response = await api_client.post(
+        f"/orders/{order.id}/cancel",
+        headers=headers,
+    )
+    assert cancel_response.status_code == 200
+
+    response = await api_client.post(
+        "/payments",
+        json={"order_id": order.id},
+        headers=headers,
+    )
+
+    assert response.status_code == 409
+
+    payment_id = await db_session.scalar(
+        select(Payment.id).where(
+            Payment.order_id == order.id
+        )
+    )
+    assert payment_id is None
+
+
+@pytest.mark.asyncio
+async def test_canceled_order_cannot_start_checkout(
+    api_client,
+    db_session,
+    cart_data,
+):
+    user_id, movie_id = cart_data
+    headers = auth_headers(user_id)
+
+    order = await create_test_order(
+        db_session,
+        user_id=user_id,
+        movie_id=movie_id,
+        order_status="pending",
+    )
+
+    payment_response = await api_client.post(
+        "/payments",
+        json={"order_id": order.id},
+        headers=headers,
+    )
+
+    assert payment_response.status_code == 201
+    payment_id = payment_response.json()["id"]
+
+    cancel_response = await api_client.post(
+        f"/orders/{order.id}/cancel",
+        headers=headers,
+    )
+    assert cancel_response.status_code == 200
+
+    checkout_response = await api_client.post(
+        f"/payments/{payment_id}/checkout",
+        headers=headers,
+    )
+
+    assert checkout_response.status_code == 409
+
+    payment = await db_session.get(Payment, payment_id)
+    await db_session.refresh(payment)
+    await db_session.refresh(order)
+
+    assert payment.external_payment_id is None
+    assert order.status == "canceled"

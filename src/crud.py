@@ -971,6 +971,10 @@ async def remove_movie_from_cart(
     return True
 
 
+class AllCartItemsPurchasedError(Exception):
+    """All movies in the shopping cart are already purchased."""
+
+
 async def create_order_from_cart(
     db: AsyncSession,
     user_id: int,
@@ -983,12 +987,37 @@ async def create_order_from_cart(
     if not cart_items:
         return None
 
+    # Find movies already purchased by this user.
+    result = await db.execute(
+        select(OrderItem.movie_id)
+        .join(Order, OrderItem.order_id == Order.id)
+        .where(
+            Order.user_id == user_id,
+            Order.status == "paid",
+            OrderItem.movie_id.in_(
+                [item.movie_id for item in cart_items]
+            ),
+        )
+    )
+
+    purchased_movie_ids = set(result.scalars().all())
+
+    # Exclude purchased movies from the new order.
+    available_items = [
+        item
+        for item in cart_items
+        if item.movie_id not in purchased_movie_ids
+    ]
+
+    if not available_items:
+        raise AllCartItemsPurchasedError()
+
     order_items = [
         OrderItem(
             movie_id=item.movie_id,
             price_at_order=item.movie.price,
         )
-        for item in cart_items
+        for item in available_items
     ]
 
     total_amount = sum(
@@ -1008,11 +1037,12 @@ async def create_order_from_cart(
 
     try:
         db.add(order)
-
         await db.flush()
 
         order_id = order.id
 
+        # Remove processed items from the cart,
+        # including previously purchased movies.
         await db.execute(
             delete(CartItem).where(
                 CartItem.id.in_(

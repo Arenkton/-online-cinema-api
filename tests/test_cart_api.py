@@ -636,3 +636,210 @@ async def test_purchased_movie_rejected_without_changing_cart(
     assert len(items) == 1
     assert items[0].id == original_item_id
     assert items[0].movie_id == movie_id
+
+
+async def create_cart_with_movies(
+    db_session,
+    user_id: int,
+    movie_ids: list[int],
+) -> int:
+    cart = Cart(user_id=user_id)
+    db_session.add(cart)
+    await db_session.flush()
+
+    db_session.add_all(
+        [
+            CartItem(
+                cart_id=cart.id,
+                movie_id=movie_id,
+            )
+            for movie_id in movie_ids
+        ]
+    )
+
+    cart_id = cart.id
+    await db_session.commit()
+
+    return cart_id
+
+
+@pytest.mark.asyncio
+async def test_order_excludes_purchased_movie(
+    api_client,
+    db_session,
+    cart_data,
+):
+    user_id, purchased_movie_id = cart_data
+
+    await create_test_order(
+        db_session,
+        user_id=user_id,
+        movie_id=purchased_movie_id,
+        order_status="paid",
+    )
+
+    original_movie = await db_session.get(
+        Movie, purchased_movie_id
+    )
+
+    available_movie = Movie(
+        name="Available Movie For Order",
+        year=2025,
+        time=110,
+        imdb=7.5,
+        votes=500,
+        description="Movie not purchased yet",
+        price=Decimal("14.99"),
+        certification_id=original_movie.certification_id,
+    )
+
+    db_session.add(available_movie)
+    await db_session.flush()
+
+    cart_id = await create_cart_with_movies(
+        db_session,
+        user_id=user_id,
+        movie_ids=[
+            purchased_movie_id,
+            available_movie.id,
+        ],
+    )
+
+    response = await api_client.post(
+        "/orders",
+        headers=auth_headers(user_id),
+    )
+
+    assert response.status_code == 201
+
+    new_order_id = response.json()["id"]
+
+    order = await db_session.get(Order, new_order_id)
+
+    assert order.status == "pending"
+    assert order.total_amount == Decimal("14.99")
+
+    result = await db_session.execute(
+        select(OrderItem).where(
+            OrderItem.order_id == new_order_id
+        )
+    )
+
+    items = result.scalars().all()
+
+    assert len(items) == 1
+    assert items[0].movie_id == available_movie.id
+    assert items[0].price_at_order == Decimal("14.99")
+
+    # Both cart items must be removed after order creation.
+    assert await get_cart_items(db_session, cart_id) == []
+
+
+@pytest.mark.asyncio
+async def test_order_all_movies_purchased_returns_409(
+    api_client,
+    db_session,
+    cart_data,
+):
+    user_id, movie_id = cart_data
+
+    await create_test_order(
+        db_session,
+        user_id=user_id,
+        movie_id=movie_id,
+        order_status="paid",
+    )
+
+    cart_id = await create_cart_with_movies(
+        db_session,
+        user_id=user_id,
+        movie_ids=[movie_id],
+    )
+
+    response = await api_client.post(
+        "/orders",
+        headers=auth_headers(user_id),
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "All movies in cart are already purchased"
+    )
+
+    result = await db_session.execute(
+        select(Order).where(Order.user_id == user_id)
+    )
+
+    orders = result.scalars().all()
+
+    # Only the original paid order should exist.
+    assert len(orders) == 1
+    assert orders[0].status == "paid"
+
+    # Failed order creation must not modify the cart.
+    items = await get_cart_items(db_session, cart_id)
+
+    assert len(items) == 1
+    assert items[0].movie_id == movie_id
+
+
+@pytest.mark.asyncio
+async def test_other_users_purchase_does_not_block_order(
+    api_client,
+    db_session,
+    cart_data,
+):
+    user_id, movie_id = cart_data
+
+    user = await db_session.get(User, user_id)
+
+    other_user = User(
+        email="other-order-buyer@example.com",
+        hashed_password="test-password-hash",
+        is_active=True,
+        group_id=user.group_id,
+    )
+
+    db_session.add(other_user)
+    await db_session.flush()
+
+    await create_test_order(
+        db_session,
+        user_id=other_user.id,
+        movie_id=movie_id,
+        order_status="paid",
+    )
+
+    cart_id = await create_cart_with_movies(
+        db_session,
+        user_id=user_id,
+        movie_ids=[movie_id],
+    )
+
+    response = await api_client.post(
+        "/orders",
+        headers=auth_headers(user_id),
+    )
+
+    assert response.status_code == 201
+
+    order_id = response.json()["id"]
+
+    order = await db_session.get(Order, order_id)
+
+    assert order.user_id == user_id
+    assert order.status == "pending"
+    assert order.total_amount == Decimal("9.99")
+
+    result = await db_session.execute(
+        select(OrderItem).where(
+            OrderItem.order_id == order_id
+        )
+    )
+
+    items = result.scalars().all()
+
+    assert len(items) == 1
+    assert items[0].movie_id == movie_id
+
+    assert await get_cart_items(db_session, cart_id) == []

@@ -13,6 +13,8 @@ from src.models import (
     User,
     UserGroup,
     UserGroupEnum,
+    Order,
+    OrderItem,
 )
 
 
@@ -464,3 +466,173 @@ async def test_clear_cart_does_not_affect_other_user(
     assert len(first_items) == 0
     assert len(second_items) == 1
     assert second_items[0].movie_id == movie_id
+
+
+async def create_test_order(
+    db_session,
+    user_id: int,
+    movie_id: int,
+    order_status: str = "paid",
+):
+    order = Order(
+        user_id=user_id,
+        status=order_status,
+        total_amount=Decimal("9.99"),
+        items=[
+            OrderItem(
+                movie_id=movie_id,
+                price_at_order=Decimal("9.99"),
+            )
+        ],
+    )
+
+    db_session.add(order)
+    await db_session.commit()
+
+    return order
+
+
+@pytest.mark.asyncio
+async def test_cannot_add_purchased_movie_to_cart(
+    api_client,
+    db_session,
+    cart_data,
+):
+    user_id, movie_id = cart_data
+
+    await create_test_order(
+        db_session,
+        user_id=user_id,
+        movie_id=movie_id,
+        order_status="paid",
+    )
+
+    response = await api_client.post(
+        "/cart/items",
+        json={"movie_id": movie_id},
+        headers=auth_headers(user_id),
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "Movie has already been purchased"
+    )
+
+    cart = await db_session.scalar(
+        select(Cart).where(Cart.user_id == user_id)
+    )
+    assert cart is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "order_status",
+    ["pending", "canceled"],
+)
+async def test_can_add_movie_from_unpaid_order(
+    api_client,
+    db_session,
+    cart_data,
+    order_status,
+):
+    user_id, movie_id = cart_data
+
+    await create_test_order(
+        db_session,
+        user_id=user_id,
+        movie_id=movie_id,
+        order_status=order_status,
+    )
+
+    response = await api_client.post(
+        "/cart/items",
+        json={"movie_id": movie_id},
+        headers=auth_headers(user_id),
+    )
+
+    assert response.status_code == 201
+    assert response.json()["movie_id"] == movie_id
+
+
+@pytest.mark.asyncio
+async def test_other_users_purchase_does_not_block_cart(
+    api_client,
+    db_session,
+    cart_data,
+):
+    user_id, movie_id = cart_data
+
+    first_user = await db_session.get(User, user_id)
+
+    other_user = User(
+        email="purchased-by-other@example.com",
+        hashed_password="test-password-hash",
+        is_active=True,
+        group_id=first_user.group_id,
+    )
+
+    db_session.add(other_user)
+    await db_session.flush()
+
+    await create_test_order(
+        db_session,
+        user_id=other_user.id,
+        movie_id=movie_id,
+        order_status="paid",
+    )
+
+    response = await api_client.post(
+        "/cart/items",
+        json={"movie_id": movie_id},
+        headers=auth_headers(user_id),
+    )
+
+    assert response.status_code == 201
+    assert response.json()["movie_id"] == movie_id
+
+
+@pytest.mark.asyncio
+async def test_purchased_movie_rejected_without_changing_cart(
+    api_client,
+    db_session,
+    cart_data,
+):
+    user_id, movie_id = cart_data
+    headers = auth_headers(user_id)
+
+    first_response = await api_client.post(
+        "/cart/items",
+        json={"movie_id": movie_id},
+        headers=headers,
+    )
+
+    assert first_response.status_code == 201
+    original_item_id = first_response.json()["id"]
+
+    await create_test_order(
+        db_session,
+        user_id=user_id,
+        movie_id=movie_id,
+        order_status="paid",
+    )
+
+    second_response = await api_client.post(
+        "/cart/items",
+        json={"movie_id": movie_id},
+        headers=headers,
+    )
+
+    assert second_response.status_code == 409
+    assert second_response.json()["detail"] == (
+        "Movie has already been purchased"
+    )
+
+    cart = await db_session.scalar(
+        select(Cart).where(Cart.user_id == user_id)
+    )
+
+    items = await get_cart_items(db_session, cart.id)
+
+    assert len(items) == 1
+    assert items[0].id == original_item_id
+    assert items[0].movie_id == movie_id

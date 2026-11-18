@@ -17,7 +17,14 @@ from src.crud import(
     remove_movie_from_cart,
 )
 from src.database import get_db
-from src.models import Movie, User, Cart, CartItem
+from src.models import(
+    Movie,
+    User,
+    Cart,
+    CartItem,
+    Order,
+    OrderItem,
+)
 from src.schemas import(
     CartItemCreate,
     CartItemRead,
@@ -30,6 +37,7 @@ router = APIRouter(
     prefix="/cart",
     tags=["Cart"],
 )
+
 
 
 @router.post(
@@ -48,6 +56,24 @@ async def create_cart_item(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Movie not found",
+        )
+
+    # Check whether the user already purchased this movie.
+    purchased_movie_id = await db.scalar(
+        select(OrderItem.movie_id)
+        .join(Order, OrderItem.order_id == Order.id)
+        .where(
+            Order.user_id == current_user.id,
+            Order.status == "paid",
+            OrderItem.movie_id == data.movie_id,
+        )
+        .limit(1)
+    )
+
+    if purchased_movie_id is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Movie has already been purchased",
         )
 
     try:
@@ -70,6 +96,7 @@ async def create_cart_item(
         )
 
     return item
+
 
 
 @router.get(

@@ -1124,6 +1124,65 @@ class PaymentConflictError(Exception):
     pass
 
 
+class OrderCannotBeCanceledError(Exception):
+    """The order is not pending."""
+
+
+class ActiveCheckoutSessionError(Exception):
+    """The order has an active payment checkout."""
+
+
+async def cancel_user_order(
+    db: AsyncSession,
+    user_id: int,
+    order_id: int,
+) -> Order | None:
+    result = await db.execute(
+        select(Order)
+        .options(selectinload(Order.items))
+        .where(
+            Order.id == order_id,
+            Order.user_id == user_id,
+        )
+        .with_for_update()
+    )
+
+    order = result.scalar_one_or_none()
+
+    if order is None:
+        return None
+
+    if order.status != "pending":
+        raise OrderCannotBeCanceledError()
+
+    active_checkout_id = await db.scalar(
+        select(Payment.id)
+        .where(
+            Payment.order_id == order.id,
+            Payment.status == "pending",
+            Payment.external_payment_id.is_not(None),
+        )
+        .limit(1)
+    )
+
+    if active_checkout_id is not None:
+        raise ActiveCheckoutSessionError()
+
+    order.status = "canceled"
+
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise
+
+    return await get_user_order(
+        db=db,
+        user_id=user_id,
+        order_id=order_id,
+    )
+
+
 async def create_payment_from_order(
     db: AsyncSession,
     user_id: int,

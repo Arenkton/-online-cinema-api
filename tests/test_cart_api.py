@@ -15,6 +15,7 @@ from src.models import (
     UserGroupEnum,
     Order,
     OrderItem,
+    Payment,
 )
 
 
@@ -1116,3 +1117,227 @@ async def test_readding_movie_from_pending_order(
 
     assert len(items) == 1
     assert items[0].movie_id == movie_id
+
+
+@pytest.mark.asyncio
+async def test_cancel_pending_order_success(
+    api_client,
+    db_session,
+    cart_data,
+):
+    user_id, movie_id = cart_data
+
+    order = await create_test_order(
+        db_session,
+        user_id=user_id,
+        movie_id=movie_id,
+        order_status="pending",
+    )
+
+    response = await api_client.post(
+        f"/orders/{order.id}/cancel",
+        headers=auth_headers(user_id),
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["id"] == order.id
+    assert data["status"] == "canceled"
+
+    await db_session.refresh(order)
+    assert order.status == "canceled"
+
+    result = await db_session.execute(
+        select(OrderItem).where(
+            OrderItem.order_id == order.id
+        )
+    )
+    items = result.scalars().all()
+
+    # Canceling must not delete order history.
+    assert len(items) == 1
+    assert items[0].movie_id == movie_id
+
+
+@pytest.mark.asyncio
+async def test_cannot_cancel_paid_order(
+    api_client,
+    db_session,
+    cart_data,
+):
+    user_id, movie_id = cart_data
+
+    order = await create_test_order(
+        db_session,
+        user_id=user_id,
+        movie_id=movie_id,
+        order_status="paid",
+    )
+
+    response = await api_client.post(
+        f"/orders/{order.id}/cancel",
+        headers=auth_headers(user_id),
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "Only pending orders can be canceled"
+    )
+
+    await db_session.refresh(order)
+    assert order.status == "paid"
+
+
+@pytest.mark.asyncio
+async def test_cannot_cancel_order_twice(
+    api_client,
+    db_session,
+    cart_data,
+):
+    user_id, movie_id = cart_data
+
+    order = await create_test_order(
+        db_session,
+        user_id=user_id,
+        movie_id=movie_id,
+        order_status="pending",
+    )
+
+    headers = auth_headers(user_id)
+    url = f"/orders/{order.id}/cancel"
+
+    first_response = await api_client.post(
+        url,
+        headers=headers,
+    )
+    second_response = await api_client.post(
+        url,
+        headers=headers,
+    )
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 409
+
+    await db_session.refresh(order)
+    assert order.status == "canceled"
+
+
+@pytest.mark.asyncio
+async def test_cancel_nonexistent_order_returns_404(
+    api_client,
+    cart_data,
+):
+    user_id, _ = cart_data
+
+    response = await api_client.post(
+        "/orders/999999/cancel",
+        headers=auth_headers(user_id),
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Order not found"
+
+
+@pytest.mark.asyncio
+async def test_cannot_cancel_another_users_order(
+    api_client,
+    db_session,
+    cart_data,
+):
+    user_id, movie_id = cart_data
+
+    user = await db_session.get(User, user_id)
+
+    other_user = User(
+        email="other-cancel-user@example.com",
+        hashed_password="test-password-hash",
+        is_active=True,
+        group_id=user.group_id,
+    )
+
+    db_session.add(other_user)
+    await db_session.flush()
+
+    order = await create_test_order(
+        db_session,
+        user_id=other_user.id,
+        movie_id=movie_id,
+        order_status="pending",
+    )
+
+    response = await api_client.post(
+        f"/orders/{order.id}/cancel",
+        headers=auth_headers(user_id),
+    )
+
+    assert response.status_code == 404
+
+    await db_session.refresh(order)
+    assert order.status == "pending"
+
+
+@pytest.mark.asyncio
+async def test_cannot_cancel_order_with_active_checkout(
+    api_client,
+    db_session,
+    cart_data,
+):
+    user_id, movie_id = cart_data
+
+    order = await create_test_order(
+        db_session,
+        user_id=user_id,
+        movie_id=movie_id,
+        order_status="pending",
+    )
+
+    payment = Payment(
+        user_id=user_id,
+        order_id=order.id,
+        status="pending",
+        amount=Decimal("9.99"),
+        external_payment_id="cs_test_active_checkout",
+    )
+
+    db_session.add(payment)
+    await db_session.commit()
+
+    response = await api_client.post(
+        f"/orders/{order.id}/cancel",
+        headers=auth_headers(user_id),
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "Order cannot be canceled while "
+        "a Stripe Checkout Session is active"
+    )
+
+    await db_session.refresh(order)
+    assert order.status == "pending"
+
+
+@pytest.mark.asyncio
+async def test_cancel_order_without_auth(
+    api_client,
+    db_session,
+    cart_data,
+):
+    user_id, movie_id = cart_data
+
+    order = await create_test_order(
+        db_session,
+        user_id=user_id,
+        movie_id=movie_id,
+        order_status="pending",
+    )
+
+    response = await api_client.post(
+        f"/orders/{order.id}/cancel",
+    )
+
+    assert response.status_code == 401
+
+    await db_session.refresh(order)
+    assert order.status == "pending"

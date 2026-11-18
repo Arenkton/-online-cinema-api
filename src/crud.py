@@ -24,6 +24,8 @@ from src.models import (
     CartItem,
     Order,
     OrderItem,
+    Payment,
+    PaymentItem,
 )
 
 from src.schemas import (
@@ -1066,3 +1068,98 @@ async def get_user_order(
     )
 
     return result.scalar_one_or_none()
+
+
+class PaymentConflictError(Exception):
+    pass
+
+
+async def create_payment_from_order(
+    db: AsyncSession,
+    user_id: int,
+    order_id: int,
+) -> Payment | None:
+    result = await db.execute(
+        select(Order)
+        .options(selectinload(Order.items))
+        .where(
+            Order.id == order_id,
+            Order.user_id == user_id,
+        )
+        .with_for_update()
+    )
+
+    order = result.scalar_one_or_none()
+
+    if order is None:
+        return None
+
+    if order.status != "pending":
+        raise PaymentConflictError(
+            "Order is not available for payment"
+        )
+
+    if not order.items:
+        raise PaymentConflictError(
+            "Order has no items"
+        )
+
+    total = sum(
+        (item.price_at_order for item in order.items),
+        Decimal("0.00"),
+    )
+
+    if (
+        order.total_amount is None
+        or total <= 0
+        or total != order.total_amount
+    ):
+        raise PaymentConflictError(
+            "Order amount is invalid"
+        )
+
+    existing_payment = await db.scalar(
+        select(Payment.id)
+        .where(
+            Payment.order_id == order_id,
+            Payment.status.in_(("pending", "paid")),
+        )
+        .limit(1)
+    )
+
+    if existing_payment is not None:
+        raise PaymentConflictError(
+            "An active or completed payment already exists"
+        )
+
+    payment = Payment(
+        user_id=user_id,
+        order_id=order_id,
+        status="pending",
+        amount=order.total_amount,
+        items=[
+            PaymentItem(
+                order_item_id=item.id,
+                price_at_payment=item.price_at_order,
+            )
+            for item in order.items
+        ],
+    )
+
+    try:
+        db.add(payment)
+        await db.flush()
+        payment_id = payment.id
+        await db.commit()
+
+    except Exception:
+        await db.rollback()
+        raise
+
+    result = await db.execute(
+        select(Payment)
+        .options(selectinload(Payment.items))
+        .where(Payment.id == payment_id)
+    )
+
+    return result.scalar_one()

@@ -3,6 +3,7 @@ import re
 from decimal import Decimal
 from uuid import UUID
 from typing import Literal
+from datetime import datetime
 
 from pydantic import (
     BaseModel,
@@ -183,3 +184,28 @@ class TokenPair(BaseModel):
 
 class RefreshTokenRequest(BaseModel):
     refresh_token: str = Field(min_length=1)
+
+
+class CartItemCreate(BaseModel):
+    movie_id: int = Field(gt=0)
+
+
+class CartItemRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    movie_id: int
+    added_at: datetime
+
+
+class CartMovieRead(BaseModel):
+    id: int
+    movie_id: int
+    name: str
+    price: Decimal
+    added_at: datetime
+
+
+class CartRead(BaseModel):
+    items: list[CartMovieRead]
+    total_price: Decimal

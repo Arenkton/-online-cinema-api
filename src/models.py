@@ -18,6 +18,7 @@ from sqlalchemy import (
     func,
     Date,
     Enum as SQLEnum,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import (
     Mapped,
@@ -133,6 +134,13 @@ class User(Base):
         "RefreshToken",
         back_populates="user",
         cascade="all, delete-orphan"
+    )
+
+    cart = relationship(
+        "Cart",
+        back_populates="user",
+        uselist=False,
+        cascade="all, delete-orphan",
     )
 
 
@@ -299,6 +307,11 @@ class Movie(Base):
         back_populates="movies"
     )
 
+    cart_items = relationship(
+        "CartItem",
+        back_populates="movie",
+    )
+
 
 class Certification(Base):
     __tablename__ = "certifications"
@@ -359,3 +372,70 @@ class Director(Base):
         secondary="movie_directors",
         back_populates="directors"
     )
+
+
+class Cart(Base):
+    __tablename__ = "carts"
+
+    id = Column(Integer, primary_key=True)
+
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id"),
+        unique=True,
+        nullable=False,
+    )
+
+    user = relationship(
+        "User",
+        back_populates="cart",
+    )
+
+    items = relationship(
+        "CartItem",
+        back_populates="cart",
+        cascade="all, delete-orphan",
+    )
+
+
+class CartItem(Base):
+    __tablename__ = "cart_items"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "cart_id",
+            "movie_id",
+            name="uq_cart_items_cart_movie",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True)
+
+    cart_id = Column(
+        Integer,
+        ForeignKey("carts.id"),
+        nullable=False,
+    )
+
+    movie_id = Column(
+        Integer,
+        ForeignKey("movies.id"),
+        nullable=False,
+    )
+
+    added_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    cart = relationship(
+        "Cart",
+        back_populates="items",
+    )
+
+    movie = relationship(
+        "Movie",
+        back_populates="cart_items",
+    )
+

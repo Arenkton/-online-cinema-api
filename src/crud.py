@@ -19,6 +19,8 @@ from src.models import (
     UserGroupEnum,
     ActivationToken,
     RefreshToken,
+    Cart,
+    CartItem,
 )
 
 from src.schemas import (
@@ -849,6 +851,106 @@ async def revoke_refresh_token(
             .returning(RefreshToken.id)
         )
 
+        deleted_id = result.scalar_one_or_none()
+
+        if deleted_id is None:
+            await db.rollback()
+            return False
+
+        await db.commit()
+
+    except Exception:
+        await db.rollback()
+        raise
+
+    return True
+
+
+async def add_movie_to_cart(
+    db: AsyncSession,
+    user_id: int,
+    movie_id: int,
+) -> CartItem | None:
+    result = await db.execute(
+        select(Cart).where(Cart.user_id == user_id)
+    )
+    cart = result.scalar_one_or_none()
+
+    if cart is None:
+        cart = Cart(user_id=user_id)
+        db.add(cart)
+        await db.flush()
+
+    result = await db.execute(
+        select(CartItem).where(
+            CartItem.cart_id == cart.id,
+            CartItem.movie_id == movie_id,
+        )
+    )
+
+    existing_item = result.scalar_one_or_none()
+
+    if existing_item is not None:
+        await db.rollback()
+        return None
+
+    item = CartItem(
+        cart_id=cart.id,
+        movie_id=movie_id,
+    )
+
+    db.add(item)
+
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise
+
+    await db.refresh(item)
+    return item
+
+
+async def get_cart_items(
+    db: AsyncSession,
+    user_id: int,
+) -> list[CartItem]:
+    result = await db.execute(
+        select(CartItem)
+        .join(Cart, CartItem.cart_id == Cart.id)
+        .options(
+            selectinload(CartItem.movie)
+        )
+        .where(Cart.user_id == user_id)
+        .order_by(
+            CartItem.added_at,
+            CartItem.id,
+        )
+    )
+
+    return list(result.scalars().all())
+
+
+async def remove_movie_from_cart(
+    db: AsyncSession,
+    user_id: int,
+    movie_id: int,
+) -> bool:
+    stmt = (
+        delete(CartItem)
+        .where(
+            CartItem.movie_id == movie_id,
+            CartItem.cart_id.in_(
+                select(Cart.id).where(
+                    Cart.user_id == user_id
+                )
+            ),
+        )
+        .returning(CartItem.id)
+    )
+
+    try:
+        result = await db.execute(stmt)
         deleted_id = result.scalar_one_or_none()
 
         if deleted_id is None:

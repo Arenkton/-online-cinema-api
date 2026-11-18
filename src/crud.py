@@ -816,3 +816,49 @@ async def rotate_refresh_token(
         raise
 
     return new_access, new_refresh
+
+
+async def revoke_refresh_token(
+    db: AsyncSession,
+    raw_token: str,
+) -> bool:
+    payload = decode_jwt_token(
+        raw_token,
+        expected_type="refresh",
+    )
+
+    try:
+        user_id = int(payload["sub"])
+    except (ValueError, TypeError):
+        return False
+
+    if user_id <= 0 or str(user_id) != payload["sub"]:
+        return False
+
+    token_hash = hashlib.sha256(
+        raw_token.encode("utf-8")
+    ).hexdigest()
+
+    try:
+        result = await db.execute(
+            delete(RefreshToken)
+            .where(
+                RefreshToken.user_id == user_id,
+                RefreshToken.token == token_hash,
+            )
+            .returning(RefreshToken.id)
+        )
+
+        deleted_id = result.scalar_one_or_none()
+
+        if deleted_id is None:
+            await db.rollback()
+            return False
+
+        await db.commit()
+
+    except Exception:
+        await db.rollback()
+        raise
+
+    return True

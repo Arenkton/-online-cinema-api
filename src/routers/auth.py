@@ -18,6 +18,7 @@ from src.crud import(
     resend_activation_token,
     save_refresh_token,
     rotate_refresh_token,
+    revoke_refresh_token,
 )
 from src.database import get_db
 from src.email_service import send_activation_email
@@ -280,3 +281,35 @@ async def refresh_tokens(
         access_token=access_token,
         refresh_token=refresh_token,
     )
+
+
+@router.post(
+    "/logout",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Logout user",
+    description=(
+        "Revokes the provided refresh token "
+        "and terminates its session."
+    ),
+)
+async def logout_user(
+    data: RefreshTokenRequest,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    try:
+        revoked = await revoke_refresh_token(
+            db=db,
+            raw_token=data.refresh_token,
+        )
+
+    except jwt.InvalidTokenError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token",
+        ) from exc
+
+    if not revoked:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token",
+        )

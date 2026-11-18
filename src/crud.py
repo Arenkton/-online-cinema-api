@@ -975,6 +975,10 @@ class AllCartItemsPurchasedError(Exception):
     """All movies in the shopping cart are already purchased."""
 
 
+class PendingOrderConflictError(Exception):
+    """A movie already exists in a pending order."""
+
+
 async def create_order_from_cart(
     db: AsyncSession,
     user_id: int,
@@ -1011,6 +1015,22 @@ async def create_order_from_cart(
 
     if not available_items:
         raise AllCartItemsPurchasedError()
+
+    pending_movie_id = await db.scalar(
+        select(OrderItem.movie_id)
+        .join(Order, OrderItem.order_id == Order.id)
+        .where(
+            Order.user_id == user_id,
+            Order.status == "pending",
+            OrderItem.movie_id.in_(
+                [item.movie_id for item in available_items]
+            ),
+        )
+        .limit(1)
+    )
+
+    if pending_movie_id is not None:
+        raise PendingOrderConflictError()
 
     order_items = [
         OrderItem(

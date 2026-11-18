@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.auth_dependencies import get_current_user
 from src.crud import(
     AllCartItemsPurchasedError,
+    PendingOrderConflictError,
     create_order_from_cart,
     get_user_orders,
     get_user_order,
@@ -61,6 +62,12 @@ async def create_order(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="All movies in cart are already purchased",
+        ) from exc
+
+    except PendingOrderConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Movie already exists in a pending order",
         ) from exc
 
     if order is None:

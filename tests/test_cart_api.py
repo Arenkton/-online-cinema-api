@@ -843,3 +843,276 @@ async def test_other_users_purchase_does_not_block_order(
     assert items[0].movie_id == movie_id
 
     assert await get_cart_items(db_session, cart_id) == []
+
+
+@pytest.mark.asyncio
+async def test_pending_order_duplicate_returns_409(
+    api_client,
+    db_session,
+    cart_data,
+):
+    user_id, movie_id = cart_data
+
+    existing_order = await create_test_order(
+        db_session,
+        user_id=user_id,
+        movie_id=movie_id,
+        order_status="pending",
+    )
+
+    cart_id = await create_cart_with_movies(
+        db_session,
+        user_id=user_id,
+        movie_ids=[movie_id],
+    )
+
+    response = await api_client.post(
+        "/orders",
+        headers=auth_headers(user_id),
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "Movie already exists in a pending order"
+    )
+
+    orders = (
+        await db_session.execute(
+            select(Order).where(Order.user_id == user_id)
+        )
+    ).scalars().all()
+
+    assert len(orders) == 1
+    assert orders[0].id == existing_order.id
+
+    items = await get_cart_items(db_session, cart_id)
+
+    assert len(items) == 1
+    assert items[0].movie_id == movie_id
+
+
+@pytest.mark.asyncio
+async def test_canceled_order_does_not_block_new_order(
+    api_client,
+    db_session,
+    cart_data,
+):
+    user_id, movie_id = cart_data
+
+    await create_test_order(
+        db_session,
+        user_id=user_id,
+        movie_id=movie_id,
+        order_status="canceled",
+    )
+
+    await create_cart_with_movies(
+        db_session,
+        user_id=user_id,
+        movie_ids=[movie_id],
+    )
+
+    response = await api_client.post(
+        "/orders",
+        headers=auth_headers(user_id),
+    )
+
+    assert response.status_code == 201
+
+    order = await db_session.get(
+        Order,
+        response.json()["id"],
+    )
+
+    assert order.status == "pending"
+    assert order.total_amount == Decimal("9.99")
+
+    items = (
+        await db_session.execute(
+            select(OrderItem).where(
+                OrderItem.order_id == order.id
+            )
+        )
+    ).scalars().all()
+
+    assert len(items) == 1
+    assert items[0].movie_id == movie_id
+
+
+@pytest.mark.asyncio
+async def test_other_users_pending_order_does_not_block(
+    api_client,
+    db_session,
+    cart_data,
+):
+    user_id, movie_id = cart_data
+
+    user = await db_session.get(User, user_id)
+
+    other_user = User(
+        email="other-pending-order@example.com",
+        hashed_password="test-password-hash",
+        is_active=True,
+        group_id=user.group_id,
+    )
+
+    db_session.add(other_user)
+    await db_session.flush()
+
+    await create_test_order(
+        db_session,
+        user_id=other_user.id,
+        movie_id=movie_id,
+        order_status="pending",
+    )
+
+    await create_cart_with_movies(
+        db_session,
+        user_id=user_id,
+        movie_ids=[movie_id],
+    )
+
+    response = await api_client.post(
+        "/orders",
+        headers=auth_headers(user_id),
+    )
+
+    assert response.status_code == 201
+
+    order = await db_session.get(
+        Order,
+        response.json()["id"],
+    )
+
+    assert order.user_id == user_id
+    assert order.status == "pending"
+
+
+@pytest.mark.asyncio
+async def test_mixed_cart_with_pending_movie_returns_409(
+    api_client,
+    db_session,
+    cart_data,
+):
+    user_id, pending_movie_id = cart_data
+
+    original_movie = await db_session.get(
+        Movie,
+        pending_movie_id,
+    )
+
+    available_movie = Movie(
+        name="Available Movie For Pending Test",
+        year=2025,
+        time=115,
+        imdb=7.9,
+        votes=400,
+        description="Movie without pending orders",
+        price=Decimal("19.99"),
+        certification_id=original_movie.certification_id,
+    )
+
+    db_session.add(available_movie)
+    await db_session.flush()
+
+    await create_test_order(
+        db_session,
+        user_id=user_id,
+        movie_id=pending_movie_id,
+        order_status="pending",
+    )
+
+    cart_id = await create_cart_with_movies(
+        db_session,
+        user_id=user_id,
+        movie_ids=[
+            pending_movie_id,
+            available_movie.id,
+        ],
+    )
+
+    response = await api_client.post(
+        "/orders",
+        headers=auth_headers(user_id),
+    )
+
+    assert response.status_code == 409
+
+    items = await get_cart_items(db_session, cart_id)
+
+    assert len(items) == 2
+    assert {item.movie_id for item in items} == {
+        pending_movie_id,
+        available_movie.id,
+    }
+
+    orders = (
+        await db_session.execute(
+            select(Order).where(Order.user_id == user_id)
+        )
+    ).scalars().all()
+
+    # No additional order should be created.
+    assert len(orders) == 1
+
+
+@pytest.mark.asyncio
+async def test_readding_movie_from_pending_order(
+    api_client,
+    db_session,
+    cart_data,
+):
+    user_id, movie_id = cart_data
+    headers = auth_headers(user_id)
+
+    first_add = await api_client.post(
+        "/cart/items",
+        json={"movie_id": movie_id},
+        headers=headers,
+    )
+
+    assert first_add.status_code == 201
+
+    first_order = await api_client.post(
+        "/orders",
+        headers=headers,
+    )
+
+    assert first_order.status_code == 201
+
+    # An order is pending, so the movie is not purchased yet.
+    second_add = await api_client.post(
+        "/cart/items",
+        json={"movie_id": movie_id},
+        headers=headers,
+    )
+
+    assert second_add.status_code == 201
+
+    second_order = await api_client.post(
+        "/orders",
+        headers=headers,
+    )
+
+    assert second_order.status_code == 409
+    assert second_order.json()["detail"] == (
+        "Movie already exists in a pending order"
+    )
+
+    orders = (
+        await db_session.execute(
+            select(Order).where(Order.user_id == user_id)
+        )
+    ).scalars().all()
+
+    assert len(orders) == 1
+    assert orders[0].id == first_order.json()["id"]
+
+    cart = await db_session.scalar(
+        select(Cart).where(Cart.user_id == user_id)
+    )
+
+    items = await get_cart_items(db_session, cart.id)
+
+    assert len(items) == 1
+    assert items[0].movie_id == movie_id

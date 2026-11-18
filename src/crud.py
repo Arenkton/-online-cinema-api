@@ -1,9 +1,26 @@
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+import hashlib
+import secrets
+
+from datetime import datetime, timedelta, timezone
+
+from sqlalchemy import select, delete
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from src.models import Movie, Genre, Certification, Star, Director
+from src.models import (
+    Movie,
+    Genre,
+    Certification,
+    Star,
+    Director,
+    User,
+    UserGroup,
+    UserGroupEnum,
+    ActivationToken,
+    RefreshToken,
+)
+
 from src.schemas import (
     MovieCreate,
     MovieUpdate,
@@ -15,7 +32,15 @@ from src.schemas import (
     StarUpdate,
     DirectorCreate,
     DirectorUpdate,
+    UserCreate,
 )
+
+from src.security import hash_password
+from src.jwt_service import (
+    create_jwt_token,
+    decode_jwt_token,
+)
+
 
 async def create_movie(
     db: AsyncSession,
@@ -490,3 +515,350 @@ async def delete_director(
         raise
 
     return db_director
+
+
+async def get_user_by_email(
+    db: AsyncSession,
+    email: str
+) -> User | None:
+    result = await db.execute(
+        select(User).where(User.email == email)
+    )
+
+    return result.scalar_one_or_none()
+
+
+async def create_user(
+    db: AsyncSession,
+    user: UserCreate
+) -> tuple[User, str]:
+    email = user.email.strip().lower()
+
+    existing_user = await get_user_by_email(db, email)
+
+    if existing_user is not None:
+        raise ValueError("Email already registered")
+
+    result = await db.execute(
+        select(UserGroup).where(
+            UserGroup.name == UserGroupEnum.USER.value
+        )
+    )
+
+    user_group = result.scalar_one_or_none()
+
+    if user_group is None:
+        raise ValueError("Default user group not found")
+
+    raw_token = secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(
+        raw_token.encode("utf-8")
+    ).hexdigest()
+
+    new_user = User(
+        email=email,
+        hashed_password=hash_password(user.password),
+        is_active=False,
+        group_id=user_group.id
+    )
+
+    try:
+        db.add(new_user)
+        await db.flush()
+
+        activation_token = ActivationToken(
+            user_id=new_user.id,
+            token=token_hash,
+            expires_at=(
+                datetime.now(timezone.utc)
+                + timedelta(hours=24)
+            )
+        )
+
+        db.add(activation_token)
+
+        await db.commit()
+        await db.refresh(new_user)
+
+    except Exception:
+        await db.rollback()
+        raise
+
+    return new_user, raw_token
+
+
+async def activate_user(
+    db: AsyncSession,
+    raw_token: str,
+) -> bool:
+    token_hash = hashlib.sha256(
+        raw_token.encode("utf-8")
+    ).hexdigest()
+
+    result = await db.execute(
+        select(ActivationToken, User)
+        .join(
+            User,
+            ActivationToken.user_id == User.id,
+        )
+        .where(ActivationToken.token == token_hash)
+    )
+
+    record = result.one_or_none()
+
+    if record is None:
+        return False
+
+    activation_token, user = record
+
+    expires_at = activation_token.expires_at
+
+    # SQLite may return a naive datetime.
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(
+            tzinfo=timezone.utc
+        )
+
+    if expires_at <= datetime.now(timezone.utc):
+        return False
+
+    user.is_active = True
+
+    try:
+        await db.delete(activation_token)
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise
+
+    return True
+
+
+async def resend_activation_token(
+    db: AsyncSession,
+    email: str,
+) -> tuple[str, str] | None:
+    user = await get_user_by_email(
+        db,
+        email.strip().lower(),
+    )
+
+    if user is None or user.is_active:
+        return None
+
+    result = await db.execute(
+        select(ActivationToken).where(
+            ActivationToken.user_id == user.id
+        )
+    )
+
+    activation = result.scalar_one_or_none()
+    now = datetime.now(timezone.utc)
+
+    if activation is not None:
+        expires_at = activation.expires_at
+
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(
+                tzinfo=timezone.utc
+            )
+
+        # Tokens are valid for 24 hours.
+        # Allow a new token after a 5-minute cooldown.
+        if expires_at > now + timedelta(
+            hours=23,
+            minutes=55,
+        ):
+            return None
+
+    raw_token = secrets.token_urlsafe(32)
+
+    token_hash = hashlib.sha256(
+        raw_token.encode("utf-8")
+    ).hexdigest()
+
+    new_expiration = now + timedelta(hours=24)
+
+    if activation is None:
+        activation = ActivationToken(
+            user_id=user.id,
+            token=token_hash,
+            expires_at=new_expiration,
+        )
+        db.add(activation)
+    else:
+        activation.token = token_hash
+        activation.expires_at = new_expiration
+
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise
+
+    return user.email, raw_token
+
+
+async def save_refresh_token(
+    db: AsyncSession,
+    user_id: int,
+    raw_token: str,
+) -> None:
+    payload = decode_jwt_token(
+        raw_token,
+        expected_type="refresh",
+    )
+
+    token_hash = hashlib.sha256(
+        raw_token.encode("utf-8")
+    ).hexdigest()
+
+    expires_at = datetime.fromtimestamp(
+        payload["exp"],
+        tz=timezone.utc,
+    )
+
+    refresh_token = RefreshToken(
+        user_id=user_id,
+        token=token_hash,
+        expires_at=expires_at,
+    )
+
+    db.add(refresh_token)
+
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise
+
+
+async def rotate_refresh_token(
+    db: AsyncSession,
+    raw_token: str,
+) -> tuple[str, str] | None:
+    payload = decode_jwt_token(
+        raw_token,
+        expected_type="refresh",
+    )
+
+    try:
+        user_id = int(payload["sub"])
+    except (ValueError, TypeError):
+        return None
+
+    if user_id <= 0 or str(user_id) != payload["sub"]:
+        return None
+
+    user = await db.get(User, user_id)
+
+    if user is None or not user.is_active:
+        return None
+
+    old_token_hash = hashlib.sha256(
+        raw_token.encode("utf-8")
+    ).hexdigest()
+
+    new_access = create_jwt_token(
+        user_id=user_id,
+        token_type="access",
+    )
+
+    new_refresh = create_jwt_token(
+        user_id=user_id,
+        token_type="refresh",
+    )
+
+    new_refresh_hash = hashlib.sha256(
+        new_refresh.encode("utf-8")
+    ).hexdigest()
+
+    new_payload = decode_jwt_token(
+        new_refresh,
+        expected_type="refresh",
+    )
+
+    expires_at = datetime.fromtimestamp(
+        new_payload["exp"],
+        tz=timezone.utc,
+    )
+
+    try:
+        result = await db.execute(
+            delete(RefreshToken)
+            .where(
+                RefreshToken.user_id == user_id,
+                RefreshToken.token == old_token_hash,
+                RefreshToken.expires_at
+                > datetime.now(timezone.utc),
+            )
+            .returning(RefreshToken.id)
+        )
+
+        deleted_token_id = result.scalar_one_or_none()
+
+        if deleted_token_id is None:
+            await db.rollback()
+            return None
+
+        db.add(
+            RefreshToken(
+                user_id=user_id,
+                token=new_refresh_hash,
+                expires_at=expires_at,
+            )
+        )
+
+        await db.commit()
+
+    except Exception:
+        await db.rollback()
+        raise
+
+    return new_access, new_refresh
+
+
+async def revoke_refresh_token(
+    db: AsyncSession,
+    raw_token: str,
+) -> bool:
+    payload = decode_jwt_token(
+        raw_token,
+        expected_type="refresh",
+    )
+
+    try:
+        user_id = int(payload["sub"])
+    except (ValueError, TypeError):
+        return False
+
+    if user_id <= 0 or str(user_id) != payload["sub"]:
+        return False
+
+    token_hash = hashlib.sha256(
+        raw_token.encode("utf-8")
+    ).hexdigest()
+
+    try:
+        result = await db.execute(
+            delete(RefreshToken)
+            .where(
+                RefreshToken.user_id == user_id,
+                RefreshToken.token == token_hash,
+            )
+            .returning(RefreshToken.id)
+        )
+
+        deleted_id = result.scalar_one_or_none()
+
+        if deleted_id is None:
+            await db.rollback()
+            return False
+
+        await db.commit()
+
+    except Exception:
+        await db.rollback()
+        raise
+
+    return True

@@ -1,27 +1,255 @@
-from sqlalchemy import (
-    Column,
-    Integer,
-    String,
-    Float,
-    Text,
-    Numeric,
-    ForeignKey,
-    Uuid,
-)
-from sqlalchemy.ext.declarative import declarative_base
+from datetime import datetime
+from enum import Enum
+from operator import index
 from uuid import uuid4
-from sqlalchemy import Uuid
-from sqlalchemy.orm import relationship
+
+from sqlalchemy import (
+    Boolean,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    Uuid,
+    false,
+    func,
+    Date,
+    Enum as SQLEnum,
+)
+from sqlalchemy.orm import (
+    Mapped,
+    declarative_base,
+    mapped_column,
+    relationship,
+)
+
+
+class UserGroupEnum(str, Enum):
+    USER = "USER"
+    MODERATOR = "MODERATOR"
+    ADMIN = "ADMIN"
+
+
+class GenderEnum(str, Enum):
+    MAN = "MAN"
+    WOMAN = "WOMAN"
+
 
 Base = declarative_base()
+
+
+class UserGroup(Base):
+    __tablename__ = "user_groups"
+
+    id: Mapped[int] = mapped_column(
+        primary_key=True
+    )
+
+    name: Mapped[str] = mapped_column(
+        String(50),
+        unique=True,
+        nullable=False
+    )
+
+    users: Mapped[list["User"]] = relationship(
+        "User",
+        back_populates="group"
+    )
 
 
 class User(Base):
     __tablename__ = "users"
 
-    id = Column(Integer, primary_key=True, index=True)
-    email = Column(String, unique=True, index=True, nullable=False)
-    hashed_password = Column(String, nullable=False)
+    id: Mapped[int] = mapped_column(
+        primary_key=True
+    )
+
+    email: Mapped[str] = mapped_column(
+        String(255),
+        unique=True,
+        nullable=False,
+        index=True
+    )
+
+    hashed_password: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False
+    )
+
+    is_active: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default=false(),
+        nullable=False
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False
+    )
+
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False
+    )
+
+    group_id: Mapped[int] = mapped_column(
+        ForeignKey("user_groups.id"),
+        nullable=False
+    )
+
+    group: Mapped["UserGroup"] = relationship(
+        "UserGroup",
+        back_populates="users"
+    )
+
+    profile: Mapped["UserProfile | None"] = relationship(
+        "UserProfile",
+        back_populates="user",
+        uselist=False
+    )
+
+    activation_token: Mapped["ActivationToken | None"] = relationship(
+        "ActivationToken",
+        back_populates="user",
+        uselist=False,
+        cascade="all, delete-orphan"
+    )
+
+    password_reset_token: Mapped["PasswordResetToken | None"] = relationship(
+        "PasswordResetToken",
+        back_populates="user",
+        uselist=False,
+        cascade="all, delete-orphan"
+    )
+
+    refresh_tokens: Mapped[list["RefreshToken"]] = relationship(
+        "RefreshToken",
+        back_populates="user",
+        cascade="all, delete-orphan"
+    )
+
+
+class UserProfile(Base):
+    __tablename__ = "user_profiles"
+
+    id = Column(Integer, primary_key=True)
+
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id"),
+        unique=True,
+        nullable=False
+    )
+
+    first_name = Column(String(100), nullable=True)
+    last_name = Column(String(100), nullable=True)
+    avatar = Column(String(255), nullable=True)
+
+    gender = Column(
+        SQLEnum(GenderEnum),
+        nullable=True
+    )
+
+    date_of_birth = Column(Date, nullable=True)
+    info = Column(Text, nullable=True)
+
+    user = relationship(
+        "User",
+        back_populates="profile"
+    )
+
+
+class ActivationToken(Base):
+    __tablename__ = "activation_tokens"
+
+    id = Column(Integer, primary_key=True)
+
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id"),
+        unique=True,
+        nullable=False
+    )
+
+    token = Column(
+        String(255),
+        unique=True,
+        nullable=False
+    )
+
+    expires_at = Column(
+        DateTime(timezone=True),
+        nullable=False
+    )
+
+    user = relationship(
+        "User",
+        back_populates="activation_token"
+    )
+
+
+class PasswordResetToken(Base):
+    __tablename__ = "password_reset_tokens"
+
+    id = Column(Integer, primary_key=True)
+
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id"),
+        unique=True,
+        nullable=False
+    )
+
+    token = Column(
+        String(255),
+        unique=True,
+        nullable=False
+    )
+
+    expires_at = Column(
+        DateTime(timezone=True),
+        nullable=False
+    )
+
+    user = relationship(
+        "User",
+        back_populates="password_reset_token"
+    )
+
+
+class RefreshToken(Base):
+    __tablename__ = "refresh_tokens"
+
+    id = Column(Integer, primary_key=True)
+
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id"),
+        nullable=False
+    )
+
+    token = Column(
+        String(255),
+        unique=True,
+        nullable=False
+    )
+
+    expires_at = Column(
+        DateTime(timezone=True),
+        nullable=False
+    )
+
+    user = relationship(
+        "User",
+        back_populates="refresh_tokens"
+    )
 
 
 class Movie(Base):

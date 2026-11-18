@@ -143,6 +143,11 @@ class User(Base):
         cascade="all, delete-orphan",
     )
 
+    orders = relationship(
+        "Order",
+        back_populates="user",
+    )
+
 
 class UserProfile(Base):
     __tablename__ = "user_profiles"
@@ -312,6 +317,11 @@ class Movie(Base):
         back_populates="movie",
     )
 
+    order_items = relationship(
+        "OrderItem",
+        back_populates="movie",
+    )
+
 
 class Certification(Base):
     __tablename__ = "certifications"
@@ -439,3 +449,73 @@ class CartItem(Base):
         back_populates="cart_items",
     )
 
+class Order(Base):
+    __tablename__ = "orders"
+
+    id = Column(Integer, primary_key=True)
+
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id"),
+        nullable=False,
+    )
+
+    created_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    status = Column(
+        String(50),
+        nullable=False,
+    )
+
+    total_amount = Column(
+        Numeric(10, 2),
+        nullable=True,
+    )
+
+    user = relationship(
+        "User",
+        back_populates="orders",
+    )
+
+    items = relationship(
+        "OrderItem",
+        back_populates="order",
+        cascade="all, delete-orphan",
+    )
+
+
+class OrderItem(Base):
+    __tablename__ = "order_items"
+
+    id = Column(Integer, primary_key=True)
+
+    order_id = Column(
+        Integer,
+        ForeignKey("orders.id"),
+        nullable=False,
+    )
+
+    movie_id = Column(
+        Integer,
+        ForeignKey("movies.id"),
+        nullable=False,
+    )
+
+    price_at_order = Column(
+        Numeric(10, 2),
+        nullable=False,
+    )
+
+    order = relationship(
+        "Order",
+        back_populates="items",
+    )
+
+    movie = relationship(
+        "Movie",
+        back_populates="order_items",
+    )

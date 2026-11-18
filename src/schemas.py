@@ -253,3 +253,9 @@ class PaymentRead(BaseModel):
     amount: Decimal
     external_payment_id: str | None
     items: list[PaymentItemRead]
+
+
+class CheckoutSessionRead(BaseModel):
+    payment_id: int
+    session_id: str
+    checkout_url: str

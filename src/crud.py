@@ -929,3 +929,38 @@ async def get_cart_items(
     )
 
     return list(result.scalars().all())
+
+
+async def remove_movie_from_cart(
+    db: AsyncSession,
+    user_id: int,
+    movie_id: int,
+) -> bool:
+    stmt = (
+        delete(CartItem)
+        .where(
+            CartItem.movie_id == movie_id,
+            CartItem.cart_id.in_(
+                select(Cart.id).where(
+                    Cart.user_id == user_id
+                )
+            ),
+        )
+        .returning(CartItem.id)
+    )
+
+    try:
+        result = await db.execute(stmt)
+        deleted_id = result.scalar_one_or_none()
+
+        if deleted_id is None:
+            await db.rollback()
+            return False
+
+        await db.commit()
+
+    except Exception:
+        await db.rollback()
+        raise
+
+    return True

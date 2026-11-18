@@ -1,10 +1,20 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import(
+    APIRouter,
+    Depends,
+    HTTPException,
+    status,
+    Path,
+)
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from decimal import Decimal
 
 from src.auth_dependencies import get_current_user
-from src.crud import add_movie_to_cart, get_cart_items
+from src.crud import(
+    add_movie_to_cart,
+    get_cart_items,
+    remove_movie_from_cart,
+)
 from src.database import get_db
 from src.models import Movie, User
 from src.schemas import(
@@ -100,3 +110,30 @@ async def get_cart(
         items=items,
         total_price=total_price,
     )
+
+
+@router.delete(
+    "/items/{movie_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Remove movie from cart",
+    description=(
+        "Removes a movie from the authenticated "
+        "user's shopping cart."
+    ),
+)
+async def delete_cart_item(
+    movie_id: int = Path(gt=0),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> None:
+    removed = await remove_movie_from_cart(
+        db=db,
+        user_id=current_user.id,
+        movie_id=movie_id,
+    )
+
+    if not removed:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Movie not found in cart",
+        )

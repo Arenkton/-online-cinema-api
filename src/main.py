@@ -9,6 +9,7 @@ from src.routers import (
     directors,
     auth,
     cart,
+    orders,
 )
 app = FastAPI()
 
@@ -27,3 +28,5 @@ app.include_router(directors.router)
 app.include_router(auth.router)
 
 app.include_router(cart.router)
+
+app.include_router(orders.router)

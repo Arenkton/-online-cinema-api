@@ -1,3 +1,4 @@
+from decimal import Decimal
 import hashlib
 import secrets
 
@@ -21,6 +22,8 @@ from src.models import (
     RefreshToken,
     Cart,
     CartItem,
+    Order,
+    OrderItem,
 )
 
 from src.schemas import (
@@ -964,3 +967,68 @@ async def remove_movie_from_cart(
         raise
 
     return True
+
+
+async def create_order_from_cart(
+    db: AsyncSession,
+    user_id: int,
+) -> Order | None:
+    cart_items = await get_cart_items(
+        db=db,
+        user_id=user_id,
+    )
+
+    if not cart_items:
+        return None
+
+    order_items = [
+        OrderItem(
+            movie_id=item.movie_id,
+            price_at_order=item.movie.price,
+        )
+        for item in cart_items
+    ]
+
+    total_amount = sum(
+        (
+            item.price_at_order
+            for item in order_items
+        ),
+        Decimal("0.00"),
+    )
+
+    order = Order(
+        user_id=user_id,
+        status="pending",
+        total_amount=total_amount,
+        items=order_items,
+    )
+
+    try:
+        db.add(order)
+
+        await db.flush()
+
+        order_id = order.id
+
+        await db.execute(
+            delete(CartItem).where(
+                CartItem.id.in_(
+                    [item.id for item in cart_items]
+                )
+            )
+        )
+
+        await db.commit()
+
+    except Exception:
+        await db.rollback()
+        raise
+
+    result = await db.execute(
+        select(Order)
+        .options(selectinload(Order.items))
+        .where(Order.id == order_id)
+    )
+
+    return result.scalar_one()

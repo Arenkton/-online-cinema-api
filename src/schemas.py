@@ -209,3 +209,22 @@ class CartMovieRead(BaseModel):
 class CartRead(BaseModel):
     items: list[CartMovieRead]
     total_price: Decimal
+
+
+class OrderItemRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    movie_id: int
+    price_at_order: Decimal
+
+
+class OrderRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    user_id: int
+    created_at: datetime
+    status: str
+    total_amount: Decimal
+    items: list[OrderItemRead]

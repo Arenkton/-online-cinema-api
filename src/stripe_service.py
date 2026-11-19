@@ -61,3 +61,63 @@ async def create_checkout_session(
             "idempotency_key": f"checkout-payment-{payment_id}",
         },
     )
+
+
+async def get_payment_intent_id(
+    checkout_session_id: str,
+) -> str:
+    secret_key = os.getenv("STRIPE_SECRET_KEY")
+
+    if not secret_key or not secret_key.startswith("sk_test_"):
+        raise RuntimeError(
+            "Valid Stripe test secret key is required"
+        )
+
+    client = StripeClient(secret_key)
+
+    session = await client.v1.checkout.sessions.retrieve_async(
+        checkout_session_id,
+    )
+
+    payment_intent = session.payment_intent
+
+    if isinstance(payment_intent, str):
+        return payment_intent
+
+    intent_id = getattr(payment_intent, "id", None)
+
+    if not intent_id:
+        raise ValueError(
+            "Checkout Session has no PaymentIntent"
+        )
+
+    return intent_id
+
+
+async def create_stripe_refund(
+    payment_id: int,
+    payment_intent_id: str,
+):
+    secret_key = os.getenv("STRIPE_SECRET_KEY")
+
+    if not secret_key or not secret_key.startswith("sk_test_"):
+        raise RuntimeError(
+            "Valid Stripe test secret key is required"
+        )
+
+    client = StripeClient(secret_key)
+
+    return await client.v1.refunds.create_async(
+        {
+            "payment_intent": payment_intent_id,
+            "reason": "requested_by_customer",
+            "metadata": {
+                "payment_id": str(payment_id),
+            },
+        },
+        options={
+            "idempotency_key": (
+                f"refund-payment-{payment_id}"
+            ),
+        },
+    )

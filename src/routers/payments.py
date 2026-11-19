@@ -192,3 +192,70 @@ async def start_checkout(
         session_id=session.id,
         checkout_url=session.url,
     )
+
+
+@router.get(
+    "",
+    response_model=list[PaymentRead],
+    status_code=status.HTTP_200_OK,
+    summary="Get payment history",
+    description=(
+        "Returns all payments belonging "
+        "to the authenticated user."
+    ),
+)
+async def get_payment_history(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    result = await db.execute(
+        select(Payment)
+        .options(
+            selectinload(Payment.order),
+            selectinload(Payment.items),
+        )
+        .where(
+            Payment.user_id == current_user.id,
+        )
+        .order_by(Payment.id.desc())
+    )
+
+    return result.scalars().all()
+
+
+@router.get(
+    "/{payment_id}",
+    response_model=PaymentRead,
+    status_code=status.HTTP_200_OK,
+    summary="Get payment details",
+    description=(
+        "Returns a payment belonging "
+        "to the authenticated user."
+    ),
+)
+async def get_payment_details(
+    payment_id: int = Path(gt=0),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    result = await db.execute(
+        select(Payment)
+        .options(
+            selectinload(Payment.order),
+            selectinload(Payment.items),
+        )
+        .where(
+            Payment.id == payment_id,
+            Payment.user_id == current_user.id,
+        )
+    )
+
+    payment = result.scalar_one_or_none()
+
+    if payment is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Payment not found",
+        )
+
+    return payment

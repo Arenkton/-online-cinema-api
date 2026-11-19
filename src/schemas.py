@@ -259,3 +259,11 @@ class CheckoutSessionRead(BaseModel):
     payment_id: int
     session_id: str
     checkout_url: str
+
+
+class RefundRead(BaseModel):
+    payment_id: int
+    refund_id: str
+    refund_status: str
+    payment_status: str
+    order_status: str

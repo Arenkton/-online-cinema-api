@@ -1,5 +1,6 @@
 import pytest_asyncio
 
+from decimal import Decimal
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     create_async_engine,
@@ -7,7 +8,14 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.pool import StaticPool
 
-from src.models import Base
+from src.models import (
+    Base,
+    Certification,
+    Movie,
+    User,
+    UserGroup,
+    UserGroupEnum,
+)
 
 from httpx import ASGITransport, AsyncClient
 
@@ -53,3 +61,35 @@ async def api_client(db_session):
             yield client
     finally:
         app.dependency_overrides.pop(get_db, None)
+
+
+@pytest_asyncio.fixture
+async def cart_data(db_session):
+    group = UserGroup(
+        name=UserGroupEnum.USER.value
+    )
+
+    certification = Certification(name="PG-13")
+
+    user = User(
+        email="cart-api@example.com",
+        hashed_password="test-password-hash",
+        is_active=True,
+        group=group,
+    )
+
+    movie = Movie(
+        name="Test Movie",
+        year=2024,
+        time=120,
+        imdb=8.5,
+        votes=1000,
+        description="Movie for cart API tests",
+        price=Decimal("9.99"),
+        certification=certification,
+    )
+
+    db_session.add_all([user, movie])
+    await db_session.commit()
+
+    return user.id, movie.id

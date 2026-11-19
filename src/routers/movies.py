@@ -13,11 +13,24 @@ router = APIRouter(
 )
 
 
+
 @router.post(
     "/",
     response_model=MovieRead,
-    status_code=status.HTTP_201_CREATED
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a movie",
+    description=(
+        "Creates a new movie in the catalog. "
+        "Requires valid movie details and an existing "
+        "certification."
+    ),
+    responses={
+        409: {
+            "description": "Movie violates database constraints",
+        },
+    },
 )
+
 async def create_movie(
     movie: MovieCreate,
     db: AsyncSession = Depends(get_db)
@@ -40,7 +53,11 @@ async def create_movie(
 
 @router.get(
     "/",
-    response_model=list[MovieRead]
+    response_model=list[MovieRead],
+    summary="List all movies",
+    description=(
+        "Returns all movies available in the catalog."
+    ),
 )
 async def get_movies(
     db: AsyncSession = Depends(get_db)
@@ -50,7 +67,14 @@ async def get_movies(
 
 @router.get(
     "/{movie_id}",
-    response_model=MovieRead
+    response_model=MovieRead,
+    summary="Get movie details",
+    description="Returns a movie by its unique identifier.",
+    responses={
+        404: {
+            "description": "Movie not found",
+        },
+    },
 )
 async def get_movie(
     movie_id: int,
@@ -69,7 +93,21 @@ async def get_movie(
 
 @router.patch(
     "/{movie_id}",
-    response_model=MovieRead
+    response_model=MovieRead,
+    summary="Update a movie",
+    description=(
+        "Partially updates an existing movie. "
+        "Only provided fields are changed. "
+        "Required fields cannot be set to null."
+    ),
+    responses={
+        404: {
+            "description": "Movie not found",
+        },
+        409: {
+            "description": "Movie violates database constraints",
+        },
+    },
 )
 async def update_movie(
     movie_id: int,
@@ -124,9 +162,24 @@ async def update_movie(
     return updated_movie
 
 
+
 @router.delete(
     "/{movie_id}",
-    status_code=status.HTTP_204_NO_CONTENT
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a movie",
+    description=(
+        "Deletes a movie from the catalog. "
+        "Deletion may be rejected if the movie "
+        "is referenced by related records."
+    ),
+    responses={
+        404: {
+            "description": "Movie not found",
+        },
+        409: {
+            "description": "Movie has related records",
+        },
+    },
 )
 async def delete_movie(
     movie_id: int,

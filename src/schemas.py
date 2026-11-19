@@ -15,6 +15,7 @@ from pydantic import (
 
 # ==================== MOVIES ====================
 
+
 class MovieBase(BaseModel):
     name: str = Field(min_length=1)
     year: int = Field(gt=0)
@@ -100,6 +101,7 @@ class UserRead(UserBase):
     model_config = ConfigDict(from_attributes=True)
 
 # ==================== CERTIFICATIONS ====================
+
 
 class CertificationCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)

@@ -13,7 +13,6 @@ router = APIRouter(
 )
 
 
-
 @router.post(
     "/",
     response_model=MovieRead,
@@ -30,7 +29,6 @@ router = APIRouter(
         },
     },
 )
-
 async def create_movie(
     movie: MovieCreate,
     db: AsyncSession = Depends(get_db)
@@ -160,7 +158,6 @@ async def update_movie(
         )
 
     return updated_movie
-
 
 
 @router.delete(

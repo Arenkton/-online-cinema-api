@@ -322,7 +322,8 @@ async def get_certification(
         db: AsyncSession,
         certification_id: int
 ) -> Certification | None:
-    result = await db.execute(select(Certification).where(Certification.id == certification_id))
+    result = await db.execute(select(Certification).
+                              where(Certification.id == certification_id))
 
     return result.scalar_one_or_none()
 

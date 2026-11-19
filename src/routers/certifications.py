@@ -4,7 +4,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import get_db
 from src import crud
-from src.schemas import CertificationCreate, CertificationUpdate, CertificationRead
+from src.schemas import (
+    CertificationCreate,
+    CertificationUpdate,
+    CertificationRead,
+)
 
 
 router = APIRouter(

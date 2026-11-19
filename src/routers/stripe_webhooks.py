@@ -1,7 +1,7 @@
 import os
 
 import stripe
-from fastapi import(
+from fastapi import (
     APIRouter,
     Depends,
     HTTPException,
@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.database import get_db
-from src.models import(
+from src.models import (
     Payment,
     Movie,
     OrderItem,
@@ -151,10 +151,6 @@ async def stripe_webhook(
             status_code=409,
             detail="Stripe payment data mismatch",
         )
-
-    confirmation_email = None
-
-
     # 5. Handle successful payment.
     confirmation_email = None
 

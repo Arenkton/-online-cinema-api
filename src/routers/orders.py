@@ -8,7 +8,7 @@ from fastapi import (
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth_dependencies import get_current_user
-from src.crud import(
+from src.crud import (
     AllCartItemsPurchasedError,
     PendingOrderConflictError,
     ActiveCheckoutSessionError,
@@ -26,18 +26,6 @@ from src.schemas import OrderRead
 router = APIRouter(
     prefix="/orders",
     tags=["Orders"],
-)
-
-
-@router.post(
-    "",
-    response_model=OrderRead,
-    status_code=status.HTTP_201_CREATED,
-    summary="Create order",
-    description=(
-        "Creates a pending order from the "
-        "authenticated user's shopping cart."
-    ),
 )
 
 

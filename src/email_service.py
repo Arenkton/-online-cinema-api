@@ -1,3 +1,4 @@
+from decimal import Decimal
 import os
 import smtplib
 
@@ -34,6 +35,53 @@ def send_activation_email(
 
     smtp_host = os.getenv("SMTP_HOST", "127.0.0.1")
     smtp_port = int(os.getenv("SMTP_PORT", "1025"))
+
+    with smtplib.SMTP(
+        smtp_host,
+        smtp_port,
+        timeout=10,
+    ) as smtp:
+        smtp.send_message(message)
+
+
+def send_order_confirmation_email(
+    recipient: str,
+    order_id: int,
+    movies: list[tuple[str, Decimal]],
+    total_amount: Decimal,
+) -> None:
+    message = EmailMessage()
+
+    message["Subject"] = (
+        f"Your Online Cinema order #{order_id} is confirmed"
+    )
+    message["From"] = os.getenv(
+        "SMTP_FROM",
+        "noreply@onlinecinema.local",
+    )
+    message["To"] = recipient
+
+    movie_lines = "\n".join(
+        f"- {name}: {price:.2f} PLN"
+        for name, price in movies
+    )
+
+    message.set_content(
+        "Thank you for your purchase!\n\n"
+        f"Order number: #{order_id}\n\n"
+        "Purchased movies:\n"
+        f"{movie_lines}\n\n"
+        f"Total amount: {total_amount:.2f} PLN\n\n"
+        "Your payment has been confirmed.\n"
+    )
+
+    smtp_host = os.getenv(
+        "SMTP_HOST",
+        "127.0.0.1",
+    )
+    smtp_port = int(
+        os.getenv("SMTP_PORT", "1025")
+    )
 
     with smtplib.SMTP(
         smtp_host,

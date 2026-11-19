@@ -3,6 +3,7 @@ import hmac
 import json
 import time
 from decimal import Decimal
+from unittest.mock import Mock
 
 import pytest
 import pytest_asyncio
@@ -186,6 +187,7 @@ async def get_statuses(db_session, webhook_data):
 async def test_completed_payment_marks_order_paid(
     api_client,
     db_session,
+    mock_order_confirmation_email,
     webhook_data,
 ):
     event = make_event(webhook_data)
@@ -202,6 +204,8 @@ async def test_completed_payment_marks_order_paid(
         db_session,
         webhook_data,
     ) == ("paid", "paid")
+
+    mock_order_confirmation_email.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -712,3 +716,15 @@ async def test_inconsistent_paid_state_returns_409(
         db_session,
         webhook_data,
     ) == ("paid", "pending")
+
+
+@pytest.fixture(autouse=True)
+def mock_order_confirmation_email(monkeypatch):
+    email_mock = Mock()
+
+    monkeypatch.setattr(
+        "src.routers.stripe_webhooks.send_order_confirmation_email",
+        email_mock,
+    )
+
+    return email_mock

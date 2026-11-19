@@ -1,14 +1,26 @@
 import os
 
 import stripe
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import(
+    APIRouter,
+    Depends,
+    HTTPException,
+    Request,
+    BackgroundTasks,
+)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.database import get_db
-from src.models import Payment
+from src.models import(
+    Payment,
+    Movie,
+    OrderItem,
+    User,
+)
 from src.stripe_service import to_minor_units
+from src.email_service import send_order_confirmation_email
 
 
 router = APIRouter(
@@ -27,6 +39,7 @@ HANDLED_EVENTS = {
 @router.post("/stripe")
 async def stripe_webhook(
     request: Request,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
     # 1. Get webhook signing secret.
@@ -128,7 +141,12 @@ async def stripe_webhook(
             detail="Stripe payment data mismatch",
         )
 
+    confirmation_email = None
+
+
     # 5. Handle successful payment.
+    confirmation_email = None
+
     if event_type in {
         "checkout.session.completed",
         "checkout.session.async_payment_succeeded",
@@ -158,6 +176,37 @@ async def stripe_webhook(
         payment.status = "paid"
         order.status = "paid"
 
+        # Prepare confirmation email only for new successful payments.
+        recipient = await db.scalar(
+            select(User.email).where(
+                User.id == order.user_id
+            )
+        )
+
+        result = await db.execute(
+            select(
+                Movie.name,
+                OrderItem.price_at_order,
+            )
+            .join(
+                OrderItem,
+                OrderItem.movie_id == Movie.id,
+            )
+            .where(
+                OrderItem.order_id == order.id
+            )
+        )
+
+        movies = list(result.all())
+
+        if recipient:
+            confirmation_email = {
+                "recipient": recipient,
+                "order_id": order.id,
+                "movies": movies,
+                "total_amount": order.total_amount,
+            }
+
     # 6. Handle failed or expired Checkout Session.
     elif event_type in {
         "checkout.session.async_payment_failed",
@@ -183,6 +232,13 @@ async def stripe_webhook(
 
     # 7. Save changes.
     await db.commit()
+
+    # 8. Schedule email only after successful commit.
+    if confirmation_email is not None:
+        background_tasks.add_task(
+            send_order_confirmation_email,
+            **confirmation_email,
+        )
 
     return {
         "received": True,

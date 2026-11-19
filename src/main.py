@@ -12,6 +12,7 @@ from src.routers import (
     orders,
     payments,
     stripe_webhooks,
+    admin_payments,
 )
 app = FastAPI()
 
@@ -36,3 +37,5 @@ app.include_router(orders.router)
 app.include_router(payments.router)
 
 app.include_router(stripe_webhooks.router)
+
+app.include_router(admin_payments.router)

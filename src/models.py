@@ -574,6 +574,21 @@ class Payment(Base):
         nullable=True,
     )
 
+    stripe_payment_intent_id = Column(
+        String(255),
+        nullable=True,
+    )
+
+    stripe_refund_id = Column(
+        String(255),
+        nullable=True,
+    )
+
+    refund_status = Column(
+        String(50),
+        nullable=True,
+    )
+
     user = relationship(
         "User",
         back_populates="payments",

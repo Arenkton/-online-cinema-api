@@ -6,10 +6,11 @@ from fastapi.security import (
     HTTPBearer,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from src.database import get_db
 from src.jwt_service import decode_jwt_token
-from src.models import User
+from src.models import User, UserGroup, UserGroupEnum
 
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -52,3 +53,46 @@ async def get_current_user(
         raise credentials_exception()
 
     return user
+
+
+async def get_current_staff(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    group_name = await db.scalar(
+        select(UserGroup.name).where(
+            UserGroup.id == current_user.group_id
+        )
+    )
+
+    allowed_groups = {
+        UserGroupEnum.ADMIN.value,
+        UserGroupEnum.MODERATOR.value,
+    }
+
+    if group_name not in allowed_groups:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin or moderator access required",
+        )
+
+    return current_user
+
+
+async def get_current_admin(
+    current_user: User = Depends(get_current_staff),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    group_name = await db.scalar(
+        select(UserGroup.name).where(
+            UserGroup.id == current_user.group_id
+        )
+    )
+
+    if group_name != UserGroupEnum.ADMIN.value:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required",
+        )
+
+    return current_user

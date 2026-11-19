@@ -2,7 +2,11 @@ import pytest
 from sqlalchemy.exc import IntegrityError
 
 from src.crud import (
-    create_director, get_director, get_directors, update_director, delete_director
+    create_director,
+    get_director,
+    get_directors,
+    update_director,
+    delete_director,
 )
 from src.schemas import DirectorCreate, DirectorUpdate
 
@@ -81,7 +85,10 @@ async def test_update_director_duplicate_name(db_session):
 
 
 async def test_delete_director(db_session):
-    created = await create_director(db_session, DirectorCreate(name="Delete me"))
+    created = await create_director(
+        db_session,
+        DirectorCreate(name="Delete me"),
+    )
     deleted = await delete_director(db_session, created.id)
     assert deleted is not None and deleted.id == created.id
     assert await get_director(db_session, created.id) is None

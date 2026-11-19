@@ -703,10 +703,6 @@ async def test_cancel_order_without_auth(
     assert order.status == "pending"
 
 
-
-
-
-
 @pytest.mark.asyncio
 async def test_order_excludes_purchased_movie(
     api_client,

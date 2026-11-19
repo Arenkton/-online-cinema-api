@@ -1,6 +1,5 @@
 from datetime import datetime
 from enum import Enum
-from operator import index
 from uuid import uuid4
 
 from sqlalchemy import (
@@ -453,6 +452,7 @@ class CartItem(Base):
         "Movie",
         back_populates="cart_items",
     )
+
 
 class Order(Base):
     __tablename__ = "orders"

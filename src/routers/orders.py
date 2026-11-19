@@ -8,7 +8,7 @@ from fastapi import (
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth_dependencies import get_current_user
-from src.crud import(
+from src.crud import (
     AllCartItemsPurchasedError,
     PendingOrderConflictError,
     ActiveCheckoutSessionError,
@@ -39,8 +39,6 @@ router = APIRouter(
         "authenticated user's shopping cart."
     ),
 )
-
-
 @router.post(
     "",
     response_model=OrderRead,

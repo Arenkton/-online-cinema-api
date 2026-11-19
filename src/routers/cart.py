@@ -1,4 +1,4 @@
-from fastapi import(
+from fastapi import (
     APIRouter,
     Depends,
     HTTPException,
@@ -11,13 +11,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from decimal import Decimal
 
 from src.auth_dependencies import get_current_user
-from src.crud import(
+from src.crud import (
     add_movie_to_cart,
     get_cart_items,
     remove_movie_from_cart,
 )
 from src.database import get_db
-from src.models import(
+from src.models import (
     Movie,
     User,
     Cart,
@@ -25,7 +25,7 @@ from src.models import(
     Order,
     OrderItem,
 )
-from src.schemas import(
+from src.schemas import (
     CartItemCreate,
     CartItemRead,
     CartRead,
@@ -37,7 +37,6 @@ router = APIRouter(
     prefix="/cart",
     tags=["Cart"],
 )
-
 
 
 @router.post(
@@ -96,7 +95,6 @@ async def create_cart_item(
         )
 
     return item
-
 
 
 @router.get(

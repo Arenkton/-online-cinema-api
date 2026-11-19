@@ -11,7 +11,7 @@ from fastapi import (
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.crud import(
+from src.crud import (
     create_user,
     get_user_by_email,
     activate_user,
@@ -22,7 +22,7 @@ from src.crud import(
 )
 from src.database import get_db
 from src.email_service import send_activation_email
-from src.schemas import(
+from src.schemas import (
     UserCreate,
     UserRead,
     UserBase,
@@ -166,7 +166,6 @@ async def resend_activation(
             "account, an activation email may be sent."
         )
     }
-
 
 
 @router.post(

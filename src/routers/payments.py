@@ -21,10 +21,9 @@ from src.models import (
     User,
     Payment,
     PaymentItem,
-    Order,
     OrderItem,
 )
-from src.schemas import(
+from src.schemas import (
     PaymentCreate,
     PaymentRead,
     CheckoutSessionRead,
@@ -140,7 +139,6 @@ async def start_checkout(
             status_code=409,
             detail="Invalid payment amount",
         ) from exc
-
 
     try:
         expected_amount = to_minor_units(payment.amount)

@@ -125,10 +125,14 @@ async def test_delete_movie_missing(db_session):
 
 
 async def test_movie_relationships_load(db_session):
-    """Verify relation tables round-trip via eager loading.
+    """
+    Verify relation tables round-trip via eager loading.
 
-    Current create_movie() does not yet accept lists of genre/star/director IDs.
-    We create association records directly until that feature is implemented.
+    Currently, create_movie() does not accept lists of
+    genre, star, or director IDs.
+
+    Association records are created directly until
+    this functionality is implemented.
     """
     cert = await make_certification(db_session)
     movie = await create_movie(db_session, movie_data(cert.id))

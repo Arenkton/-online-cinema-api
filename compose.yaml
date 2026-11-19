@@ -1,0 +1,15 @@
+services:
+  api:
+    build: .
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: sqlite+aiosqlite:////app/data/online_cinema.db
+    ports:
+      - "8000:8000"
+    volumes:
+      - cinema_sqlite:/app/data
+    restart: unless-stopped
+
+volumes:
+  cinema_sqlite:

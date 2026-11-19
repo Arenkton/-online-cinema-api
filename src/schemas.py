@@ -38,17 +38,6 @@ class MovieCreate(MovieBase):
     director_ids: list[int] = Field(default_factory=list)
 
 
-class MovieRead(MovieBase):
-    id: int
-    uuid: UUID
-
-    genres: list[GenreResponse] = Field(default_factory=list)
-    stars: list[StarResponse] = Field(default_factory=list)
-    directors: list[DirectorResponse] = Field(default_factory=list)
-
-    model_config = ConfigDict(from_attributes=True)
-
-
 class MovieUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1)
     year: int | None = Field(default=None, gt=0)
@@ -169,6 +158,17 @@ class DirectorUpdate(BaseModel):
 
 class DirectorResponse(DirectorCreate):
     id: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class MovieRead(MovieBase):
+    id: int
+    uuid: UUID
+
+    genres: list[GenreResponse] = Field(default_factory=list)
+    stars: list[StarResponse] = Field(default_factory=list)
+    directors: list[DirectorResponse] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
 

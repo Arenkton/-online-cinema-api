@@ -15,8 +15,6 @@ from sqlalchemy import (
     Uuid,
     false,
     func,
-    Date,
-    Enum as SQLEnum,
     UniqueConstraint,
 )
 from sqlalchemy.orm import (
@@ -31,11 +29,6 @@ class UserGroupEnum(str, Enum):
     USER = "USER"
     MODERATOR = "MODERATOR"
     ADMIN = "ADMIN"
-
-
-class GenderEnum(str, Enum):
-    MAN = "MAN"
-    WOMAN = "WOMAN"
 
 
 Base = declarative_base()
@@ -109,21 +102,8 @@ class User(Base):
         back_populates="users"
     )
 
-    profile: Mapped["UserProfile | None"] = relationship(
-        "UserProfile",
-        back_populates="user",
-        uselist=False
-    )
-
     activation_token: Mapped["ActivationToken | None"] = relationship(
         "ActivationToken",
-        back_populates="user",
-        uselist=False,
-        cascade="all, delete-orphan"
-    )
-
-    password_reset_token: Mapped["PasswordResetToken | None"] = relationship(
-        "PasswordResetToken",
         back_populates="user",
         uselist=False,
         cascade="all, delete-orphan"
@@ -153,36 +133,6 @@ class User(Base):
     )
 
 
-class UserProfile(Base):
-    __tablename__ = "user_profiles"
-
-    id = Column(Integer, primary_key=True)
-
-    user_id = Column(
-        Integer,
-        ForeignKey("users.id"),
-        unique=True,
-        nullable=False
-    )
-
-    first_name = Column(String(100), nullable=True)
-    last_name = Column(String(100), nullable=True)
-    avatar = Column(String(255), nullable=True)
-
-    gender = Column(
-        SQLEnum(GenderEnum),
-        nullable=True
-    )
-
-    date_of_birth = Column(Date, nullable=True)
-    info = Column(Text, nullable=True)
-
-    user = relationship(
-        "User",
-        back_populates="profile"
-    )
-
-
 class ActivationToken(Base):
     __tablename__ = "activation_tokens"
 
@@ -209,35 +159,6 @@ class ActivationToken(Base):
     user = relationship(
         "User",
         back_populates="activation_token"
-    )
-
-
-class PasswordResetToken(Base):
-    __tablename__ = "password_reset_tokens"
-
-    id = Column(Integer, primary_key=True)
-
-    user_id = Column(
-        Integer,
-        ForeignKey("users.id"),
-        unique=True,
-        nullable=False
-    )
-
-    token = Column(
-        String(255),
-        unique=True,
-        nullable=False
-    )
-
-    expires_at = Column(
-        DateTime(timezone=True),
-        nullable=False
-    )
-
-    user = relationship(
-        "User",
-        back_populates="password_reset_token"
     )
 
 

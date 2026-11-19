@@ -100,13 +100,11 @@ async def create_movie(
     if {director.id for director in directors} != set(movie.director_ids):
         raise ValueError("Some directors do not exist")
 
-    new_movie.directors = directors
-
-    db.add(new_movie)
-
     new_movie.genres = genres
     new_movie.stars = stars
     new_movie.directors = directors
+
+    db.add(new_movie)
 
     await db.commit()
 

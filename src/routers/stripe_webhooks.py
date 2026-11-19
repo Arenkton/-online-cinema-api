@@ -151,9 +151,6 @@ async def stripe_webhook(
             status_code=409,
             detail="Stripe payment data mismatch",
         )
-
-    confirmation_email = None
-
     # 5. Handle successful payment.
     confirmation_email = None
 

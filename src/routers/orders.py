@@ -39,16 +39,6 @@ router = APIRouter(
         "authenticated user's shopping cart."
     ),
 )
-@router.post(
-    "",
-    response_model=OrderRead,
-    status_code=status.HTTP_201_CREATED,
-    summary="Create order",
-    description=(
-        "Creates a pending order from the "
-        "authenticated user's shopping cart."
-    ),
-)
 async def create_order(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),

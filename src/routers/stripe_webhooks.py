@@ -33,6 +33,8 @@ HANDLED_EVENTS = {
     "checkout.session.async_payment_succeeded",
     "checkout.session.async_payment_failed",
     "checkout.session.expired",
+    "refund.updated",
+    "refund.failed",
 }
 
 
@@ -84,6 +86,15 @@ async def stripe_webhook(
             "received": True,
             "processed": False,
         }
+
+    if event["type"] in {
+        "refund.updated",
+        "refund.failed",
+    }:
+        return await handle_refund_event(
+            event=event,
+            db=db,
+        )
 
     # 3. Find payment by Stripe Checkout Session ID.
     session = event["data"]["object"].to_dict()
@@ -173,6 +184,15 @@ async def stripe_webhook(
                 detail="Unexpected payment state",
             )
 
+        if (
+                payment.status == "refunded"
+                and order.status == "refunded"
+        ):
+            return {
+                "received": True,
+                "processed": False,
+            }
+
         payment.status = "paid"
         order.status = "paid"
 
@@ -239,6 +259,152 @@ async def stripe_webhook(
             send_order_confirmation_email,
             **confirmation_email,
         )
+
+    return {
+        "received": True,
+        "processed": True,
+    }
+
+
+async def handle_refund_event(
+    event,
+    db: AsyncSession,
+):
+    refund = event["data"]["object"]
+
+    refund_id = refund.get("id")
+    refund_status = refund.get("status")
+
+    if not refund_id or refund_status not in {
+        "pending",
+        "requires_action",
+        "succeeded",
+        "failed",
+        "canceled",
+    }:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid refund event",
+        )
+
+    result = await db.execute(
+        select(Payment)
+        .options(selectinload(Payment.order))
+        .where(Payment.stripe_refund_id == refund_id)
+    )
+
+    payment = result.scalar_one_or_none()
+
+    if payment is None:
+        metadata = refund.get("metadata") or {}
+        payment_id = metadata.get("payment_id")
+
+        if not payment_id:
+            return {
+                "received": True,
+                "processed": False,
+            }
+
+        try:
+            payment_id = int(payment_id)
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid refund payment ID",
+            ) from exc
+
+        result = await db.execute(
+            select(Payment)
+            .options(selectinload(Payment.order))
+            .where(Payment.id == payment_id)
+        )
+        payment = result.scalar_one_or_none()
+
+        if payment is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Refund payment not found yet",
+            )
+
+    if (
+        payment.stripe_refund_id is not None
+        and payment.stripe_refund_id != refund_id
+    ):
+        return {
+            "received": True,
+            "processed": False,
+        }
+
+    if (
+        payment.stripe_payment_intent_id is not None
+        and refund.get("payment_intent")
+        != payment.stripe_payment_intent_id
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Refund PaymentIntent mismatch",
+        )
+
+    if (
+        refund.get("currency") != "pln"
+        or refund.get("amount")
+        != to_minor_units(payment.amount)
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Refund amount or currency mismatch",
+        )
+
+    # Do not let an older pending event overwrite
+    # a terminal refund status.
+    if (
+        payment.refund_status in {
+            "succeeded",
+            "failed",
+            "canceled",
+        }
+        and refund_status in {
+            "pending",
+            "requires_action",
+        }
+    ):
+        return {
+            "received": True,
+            "processed": False,
+        }
+
+    terminal_statuses = {
+        "succeeded",
+        "failed",
+        "canceled",
+    }
+
+    if (
+            payment.refund_status in terminal_statuses
+            and refund_status != payment.refund_status
+    ):
+        return {
+            "received": True,
+            "processed": False,
+        }
+
+    payment.stripe_refund_id = refund_id
+    payment.refund_status = refund_status
+
+    if payment.stripe_payment_intent_id is None:
+        payment.stripe_payment_intent_id = (
+            refund.get("payment_intent")
+        )
+
+    if refund_status == "succeeded":
+        payment.status = "refunded"
+        payment.order.status = "refunded"
+
+    elif refund_status in {"failed", "canceled"}:
+        payment.status = "paid"
+        payment.order.status = "paid"
+
+    await db.commit()
 
     return {
         "received": True,

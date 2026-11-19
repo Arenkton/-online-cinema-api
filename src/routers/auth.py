@@ -168,6 +168,7 @@ async def resend_activation(
     }
 
 
+
 @router.post(
     "/login",
     response_model=TokenPair,
@@ -177,6 +178,14 @@ async def resend_activation(
         "Authenticates an active user and returns "
         "access and refresh JWT tokens."
     ),
+    responses={
+        401: {
+            "description": "Invalid email or password",
+        },
+        403: {
+            "description": "Account is not activated",
+        },
+    },
 )
 async def login_user(
     credentials: UserLogin,

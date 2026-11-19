@@ -1425,3 +1425,178 @@ async def test_canceled_order_cannot_start_checkout(
 
     assert payment.external_payment_id is None
     assert order.status == "canceled"
+
+
+@pytest.mark.asyncio
+async def test_payment_history_empty(
+    api_client,
+    cart_data,
+):
+    user_id, _ = cart_data
+
+    response = await api_client.get(
+        "/payments",
+        headers=auth_headers(user_id),
+    )
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+@pytest.mark.asyncio
+async def test_payment_history_returns_own_payments(
+    api_client,
+    db_session,
+    cart_data,
+):
+    user_id, movie_id = cart_data
+
+    order = await create_test_order(
+        db_session,
+        user_id=user_id,
+        movie_id=movie_id,
+        order_status="pending",
+    )
+
+    create_response = await api_client.post(
+        "/payments",
+        json={"order_id": order.id},
+        headers=auth_headers(user_id),
+    )
+
+    assert create_response.status_code == 201
+    payment_id = create_response.json()["id"]
+
+    response = await api_client.get(
+        "/payments",
+        headers=auth_headers(user_id),
+    )
+
+    assert response.status_code == 200
+
+    payments = response.json()
+
+    assert len(payments) == 1
+    assert payments[0]["id"] == payment_id
+    assert payments[0]["order_id"] == order.id
+
+
+@pytest.mark.asyncio
+async def test_get_payment_details(
+    api_client,
+    db_session,
+    cart_data,
+):
+    user_id, movie_id = cart_data
+
+    order = await create_test_order(
+        db_session,
+        user_id=user_id,
+        movie_id=movie_id,
+        order_status="pending",
+    )
+
+    create_response = await api_client.post(
+        "/payments",
+        json={"order_id": order.id},
+        headers=auth_headers(user_id),
+    )
+
+    assert create_response.status_code == 201
+
+    payment_id = create_response.json()["id"]
+
+    response = await api_client.get(
+        f"/payments/{payment_id}",
+        headers=auth_headers(user_id),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["id"] == payment_id
+    assert response.json()["order_id"] == order.id
+    assert response.json()["status"] == "pending"
+
+
+@pytest.mark.asyncio
+async def test_get_nonexistent_payment_returns_404(
+    api_client,
+    cart_data,
+):
+    user_id, _ = cart_data
+
+    response = await api_client.get(
+        "/payments/999999",
+        headers=auth_headers(user_id),
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Payment not found"
+
+
+@pytest.mark.asyncio
+async def test_payment_endpoints_require_auth(
+    api_client,
+):
+    history_response = await api_client.get(
+        "/payments",
+    )
+
+    details_response = await api_client.get(
+        "/payments/1",
+    )
+
+    assert history_response.status_code == 401
+    assert details_response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_user_cannot_access_another_users_payment(
+    api_client,
+    db_session,
+    cart_data,
+):
+    user_id, movie_id = cart_data
+
+    user = await db_session.get(User, user_id)
+
+    other_user = User(
+        email="other-payment-history@example.com",
+        hashed_password="test-password-hash",
+        is_active=True,
+        group_id=user.group_id,
+    )
+
+    db_session.add(other_user)
+    await db_session.flush()
+
+    other_order = await create_test_order(
+        db_session,
+        user_id=other_user.id,
+        movie_id=movie_id,
+        order_status="pending",
+    )
+
+    create_response = await api_client.post(
+        "/payments",
+        json={"order_id": other_order.id},
+        headers=auth_headers(other_user.id),
+    )
+
+    assert create_response.status_code == 201
+
+    payment_id = create_response.json()["id"]
+
+    history_response = await api_client.get(
+        "/payments",
+        headers=auth_headers(user_id),
+    )
+
+    details_response = await api_client.get(
+        f"/payments/{payment_id}",
+        headers=auth_headers(user_id),
+    )
+
+    assert history_response.status_code == 200
+    assert history_response.json() == []
+
+    assert details_response.status_code == 404

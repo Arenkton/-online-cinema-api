@@ -74,7 +74,7 @@ docker compose down
 poetry install
 copy .env.example .env
 poetry run alembic upgrade head
-poetry run uvicorn src.main:app --reload
+poetry run uvicorn src.main:app --reload --env-file .env
 ```
 
 Edit `.env` before launching the server. For local SQLite development, set `DATABASE_URL=sqlite+aiosqlite:///./online_cinema.db` (or omit it if the application's default is unchanged). Local API: <http://127.0.0.1:8000>.
@@ -86,6 +86,7 @@ Set these in `.env`, using `.env.example` as the starting point. Values below ar
 | Variable | Purpose |
 | --- | --- |
 | `DATABASE_URL` | SQLAlchemy async database URL. Docker Compose configures SQLite at `/app/data/online_cinema.db`. |
+| `SQL_ECHO` | Enable SQLAlchemy SQL logging (`true` or `false`, defaults to `false`). |
 | `JWT_SECRET_KEY` | Secret used to sign JWTs; use a random value of at least 32 characters. |
 | `PUBLIC_API_BASE_URL` | Public base URL used when creating activation links. |
 | `SMTP_HOST` | SMTP server hostname; see the Mailpit section. |

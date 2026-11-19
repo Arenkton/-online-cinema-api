@@ -55,16 +55,21 @@ async def get_current_user(
     return user
 
 
-async def get_current_staff(
+async def get_current_group_name(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> User:
-    group_name = await db.scalar(
+) -> str | None:
+    return await db.scalar(
         select(UserGroup.name).where(
             UserGroup.id == current_user.group_id
         )
     )
 
+
+async def get_current_staff(
+    current_user: User = Depends(get_current_user),
+    group_name: str | None = Depends(get_current_group_name),
+) -> User:
     allowed_groups = {
         UserGroupEnum.ADMIN.value,
         UserGroupEnum.MODERATOR.value,
@@ -81,14 +86,8 @@ async def get_current_staff(
 
 async def get_current_admin(
     current_user: User = Depends(get_current_staff),
-    db: AsyncSession = Depends(get_db),
+    group_name: str | None = Depends(get_current_group_name),
 ) -> User:
-    group_name = await db.scalar(
-        select(UserGroup.name).where(
-            UserGroup.id == current_user.group_id
-        )
-    )
-
     if group_name != UserGroupEnum.ADMIN.value:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
